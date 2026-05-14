@@ -1,0 +1,63 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: screencaps
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: screencaps
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U screencaps"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://screencaps:${DB_PASSWORD:-changeme}@db:5432/screencaps
+      SESSION_SECRET: ${SESSION_SECRET}
+      BASE_URL: ${BASE_URL:-http://localhost:3000}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-lucan@rallyad.com}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-Screencaps <noreply@example.com>}
+      UPLOAD_DIR: /app/uploads
+      SCREENSHOT_DIR: /app/screenshots
+    volumes:
+      - app_uploads:/app/uploads
+      - app_screenshots:/app/screenshots
+    ports:
+      - "3000:3000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://screencaps:${DB_PASSWORD:-changeme}@db:5432/screencaps
+      UPLOAD_DIR: /app/uploads
+      SCREENSHOT_DIR: /app/screenshots
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      PLAYWRIGHT_HEADLESS: "true"
+    volumes:
+      - app_uploads:/app/uploads
+      - app_screenshots:/app/screenshots
+
+volumes:
+  db_data:
+  app_uploads:
+  app_screenshots:
