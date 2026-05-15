@@ -125,7 +125,8 @@ export async function replaceSlots(
         img.alt = "Ad preview";
         wrap.appendChild(img);
         // AdChoices badge — two white icon boxes, top-right corner
-        wrap.insertAdjacentHTML("beforeend", `<div style="position:absolute;top:4px;right:4px;display:flex;gap:2px;z-index:10;"><div style="width:22px;height:22px;background:#fff;border-radius:3px;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,0.2);"><svg width="11" height="11" viewBox="0 0 11 11" fill="none"><polygon points="2,1.5 9.5,5.5 2,9.5" fill="#1a56db"/></svg></div><div style="width:22px;height:22px;background:#fff;border-radius:3px;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,0.2);"><svg width="4" height="11" viewBox="0 0 4 11" fill="none"><circle cx="2" cy="1.5" r="1.5" fill="#374151"/><circle cx="2" cy="5.5" r="1.5" fill="#374151"/><circle cx="2" cy="9.5" r="1.5" fill="#374151"/></svg></div></div>`);
+        // Border used instead of box-shadow (overflow:hidden clips shadows)
+        wrap.insertAdjacentHTML("beforeend", `<div style="position:absolute;top:5px;right:5px;display:flex;gap:3px;z-index:10;"><div style="width:26px;height:26px;background:#ffffff;border-radius:4px;border:1px solid rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><polygon points="2.5,1.5 11,6.5 2.5,11.5" fill="none" stroke="#1a56db" stroke-width="1.4" stroke-linejoin="round"/></svg></div><div style="width:26px;height:26px;background:#ffffff;border-radius:4px;border:1px solid rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;"><svg width="4" height="14" viewBox="0 0 4 14"><circle cx="2" cy="2" r="1.7" fill="#1a56db"/><circle cx="2" cy="7" r="1.7" fill="#1a56db"/><circle cx="2" cy="12" r="1.7" fill="#1a56db"/></svg></div></div>`);
         el.replaceWith(wrap);
         n++;
       }
