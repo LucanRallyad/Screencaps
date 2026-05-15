@@ -37,7 +37,22 @@ async function shutdown() {
 
 async function processJob(data: CaptureJobData, jobId: string) {
   const { projectId, targetId, url, device } = data;
-  console.log(`[worker] ${jobId} ${device} ${url}`);
+  console.log(`[worker] start ${jobId} ${device} ${url}`);
+  try {
+    await _processJob(data, jobId);
+    console.log(`[worker] done  ${jobId} ${device} ${url}`);
+  } catch (err) {
+    console.error(`[worker] error ${jobId} ${device} ${url}:`, err);
+    await db.update(targets)
+      .set({ status: "failed", errorMessage: (err as Error).message.slice(0, 240), completedAt: new Date() })
+      .where(eq(targets.id, targetId))
+      .catch(() => {});
+    await maybeCompleteProject(projectId).catch(() => {});
+  }
+}
+
+async function _processJob(data: CaptureJobData, jobId: string) {
+  const { projectId, targetId, url, device } = data;
 
   // Verify project not stopped/deleted
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);

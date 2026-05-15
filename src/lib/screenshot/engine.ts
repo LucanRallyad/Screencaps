@@ -92,27 +92,29 @@ async function safeEval<T>(page: Page, fn: () => T, fallback: T): Promise<T> {
 
 export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome> {
   const profile: DeviceProfile = input.device === "mobile" ? MOBILE : DESKTOP;
-  const browser = await getBrowser();
-
-  const context = await browser.newContext({
-    viewport: profile.viewport,
-    deviceScaleFactor: profile.deviceScaleFactor,
-    isMobile: profile.isMobile,
-    hasTouch: profile.hasTouch,
-    userAgent: profile.userAgent,
-    bypassCSP: true,
-    locale: "en-US",
-  });
-
-  // Shim esbuild's __name helper so page.evaluate callbacks don't throw
-  await context.addInitScript(() => {
-    (window as any).__name = (fn: unknown) => fn;
-  });
-
-  await applyStealth(context);
-
-  let page: Page | null = null;
+  let context: Awaited<ReturnType<Browser["newContext"]>> | null = null;
   try {
+    const browser = await getBrowser();
+
+    context = await browser.newContext({
+      viewport: profile.viewport,
+      deviceScaleFactor: profile.deviceScaleFactor,
+      isMobile: profile.isMobile,
+      hasTouch: profile.hasTouch,
+      userAgent: profile.userAgent,
+      bypassCSP: true,
+      locale: "en-US",
+    });
+
+    // Shim esbuild's __name helper so page.evaluate callbacks don't throw
+    await context.addInitScript(() => {
+      (window as any).__name = (fn: unknown) => fn;
+    });
+
+    await applyStealth(context);
+
+    let page: Page | null = null;
+    try {
     page = await context.newPage();
 
     // Navigate
@@ -183,10 +185,15 @@ export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome
       popupsDismissed,
       uniqueAdSizes,
     };
+    } catch (err) {
+      return { status: "failed", error: (err as Error).message.slice(0, 240) };
+    } finally {
+      await context.close().catch(() => {});
+    }
   } catch (err) {
-    return { status: "failed", error: (err as Error).message.slice(0, 240) };
-  } finally {
-    await context.close().catch(() => {});
+    const msg = (err as Error).message.slice(0, 240);
+    console.error(`[engine] browser/context error: ${msg}`);
+    return { status: "failed", error: msg };
   }
 }
 
