@@ -310,10 +310,9 @@ async function captureViewports(
       const ad = pickBestAd(ads, slot.width, slot.height, used);
       if (!ad) continue;
       const dataUrl = await readAsDataUrl(ad.storagePath, ad.mimeType);
-      // Randomly assign badge: ~33% icon (top-right), ~33% text (top-left), ~33% none
-      const roll = Math.random();
-      const badgeType: "icon" | "text" | "none" = roll < 0.33 ? "icon" : roll < 0.66 ? "text" : "none";
-      const badgeDataUrl = badgeType === "icon" ? (badgeIcon ?? null) : badgeType === "text" ? (badgeText ?? null) : null;
+      // Randomly assign badge: 50% icon (top-right), 50% text (top-left)
+      const badgeType: "icon" | "text" = Math.random() < 0.5 ? "icon" : "text";
+      const badgeDataUrl = badgeType === "icon" ? (badgeIcon ?? null) : (badgeText ?? null);
       toReplace.push({ selectorId: slot.selectorId, dataUrl, width: slot.width, height: slot.height, badgeDataUrl, badgeType });
       replacedIds.push(slot.selectorId);
       used.add(ad.id);
