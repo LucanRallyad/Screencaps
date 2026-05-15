@@ -109,9 +109,10 @@ export async function detectAdSlots(page: Page): Promise<DetectedSlot[]> {
 export async function replaceSlots(
   page: Page,
   replacements: { selectorId: string; dataUrl: string; width: number; height: number }[],
+  badgeDataUrl?: string,
 ): Promise<number> {
   try {
-    return await page.evaluate((reps) => {
+    return await page.evaluate(({ reps, badge }) => {
       let n = 0;
       for (const r of reps) {
         const el = document.querySelector<HTMLElement>(`[data-screencaps-slot="${r.selectorId}"]`);
@@ -124,14 +125,19 @@ export async function replaceSlots(
         img.style.cssText = `width:${r.width}px;height:${r.height}px;display:block;object-fit:cover;`;
         img.alt = "Ad preview";
         wrap.appendChild(img);
-        // AdChoices badge — two white icon boxes, top-right corner
-        // Border used instead of box-shadow (overflow:hidden clips shadows)
-        wrap.insertAdjacentHTML("beforeend", `<div style="position:absolute;top:5px;right:5px;display:flex;gap:3px;z-index:10;"><div style="width:26px;height:26px;background:#ffffff;border-radius:4px;border:1px solid rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;"><svg width="13" height="13" viewBox="0 0 13 13" fill="none"><polygon points="2.5,1.5 11,6.5 2.5,11.5" fill="none" stroke="#1a56db" stroke-width="1.4" stroke-linejoin="round"/></svg></div><div style="width:26px;height:26px;background:#ffffff;border-radius:4px;border:1px solid rgba(0,0,0,0.15);display:flex;align-items:center;justify-content:center;"><svg width="4" height="14" viewBox="0 0 4 14"><circle cx="2" cy="2" r="1.7" fill="#1a56db"/><circle cx="2" cy="7" r="1.7" fill="#1a56db"/><circle cx="2" cy="12" r="1.7" fill="#1a56db"/></svg></div></div>`);
+        // AdChoices badge — top-right corner
+        if (badge) {
+          const badgeImg = document.createElement("img");
+          badgeImg.src = badge;
+          badgeImg.style.cssText = `position:absolute;top:4px;right:4px;width:28px;height:28px;object-fit:contain;z-index:10;`;
+          badgeImg.alt = "AdChoices";
+          wrap.appendChild(badgeImg);
+        }
         el.replaceWith(wrap);
         n++;
       }
       return n;
-    }, replacements);
+    }, { reps: replacements, badge: badgeDataUrl ?? null });
   } catch {
     return 0;
   }

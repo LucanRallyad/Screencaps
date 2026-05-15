@@ -8,6 +8,18 @@ import { dismissPopups } from "./popups";
 import { detectAdSlots, replaceSlots, restoreSlots } from "./ad-detect";
 import { injectBrowserBar, removeBrowserBar } from "./browser-bar";
 
+let _adChoicesBadge: string | null | undefined;
+async function getAdChoicesBadge(): Promise<string | null> {
+  if (_adChoicesBadge !== undefined) return _adChoicesBadge;
+  try {
+    const buf = await fs.readFile(path.join(process.cwd(), "public", "adchoices.jpg"));
+    _adChoicesBadge = `data:image/jpeg;base64,${buf.toString("base64")}`;
+  } catch {
+    _adChoicesBadge = null;
+  }
+  return _adChoicesBadge;
+}
+
 export type AdAsset = {
   id: string;
   width: number;
@@ -229,6 +241,7 @@ async function captureViewports(
   startOrder: number,
 ): Promise<SavedScreenshot[]> {
   const { width: vw, height: vh } = profile.viewport;
+  const badge = await getAdChoicesBadge();
   const results: SavedScreenshot[] = [];
   const dir = path.join(SCREENSHOT_DIR, input.projectId, input.targetId);
   await fs.mkdir(dir, { recursive: true });
@@ -300,7 +313,7 @@ async function captureViewports(
     // Skip this position entirely if nothing matched
     if (toReplace.length === 0) continue;
 
-    const adsOnPage = await replaceSlots(page, toReplace);
+    const adsOnPage = await replaceSlots(page, toReplace, badge ?? undefined);
     if (adsOnPage === 0) {
       await restoreSlots(page, replacedIds).catch(() => {});
       continue;
