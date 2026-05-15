@@ -129,6 +129,41 @@ export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome
       (window as any).__name = (fn: unknown) => fn;
     });
 
+    // Pre-inject consent signals so sites don't redirect to cookie policy pages
+    await context.addInitScript(() => {
+      try {
+        const expire = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
+        const cookies = [
+          "cookieconsent_status=allow",
+          "cookie_consent=accepted",
+          "cookies-accepted=1",
+          "consent=1",
+          "gdpr=1",
+          "euconsent=1",
+          // iubenda
+          "_iub_cs-accepted=1",
+          // OneTrust
+          "OptanonAlertBoxClosed=" + new Date().toISOString(),
+          "OptanonConsent=isGpcEnabled%3D0%26datestamp%3D" + encodeURIComponent(new Date().toISOString()) + "%26version%3D202301.1.0%26isIABGlobal%3Dfalse%26hosts%3D%26consentId%3D1%26interactionCount%3D1%26landingPath%3DNotLandingPage%26groups%3DC0001%3A1%2CC0002%3A1%2CC0003%3A1%2CC0004%3A1",
+        ];
+        cookies.forEach(c => { try { document.cookie = `${c}; path=/; expires=${expire}`; } catch {} });
+
+        const ls: Record<string, string> = {
+          "cookieconsent_status": "allow",
+          "cookie-consent": "true",
+          "cookies-accepted": "true",
+          "consent-given": "1",
+          "iubenda-cs-accepted": "1",
+          "iubenda_cookie_policy_accepted": "1",
+          "OptanonAlertBoxClosed": new Date().toISOString(),
+          "cmapi_cookie_privacy": "permit 1,2,3,4",
+          "GDPR_CONSENT": "1",
+          "cookie_consent_level": '{"strictly-necessary":true,"functionality":true,"tracking":true,"targeting":true}',
+        };
+        Object.entries(ls).forEach(([k, v]) => { try { localStorage.setItem(k, v); } catch {} });
+      } catch {}
+    });
+
     await applyStealth(context);
 
     let page: Page | null = null;
@@ -142,6 +177,17 @@ export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome
       // "load" timed out — try proceeding with whatever loaded (domcontentloaded already fired)
       const msg = (err as Error).message;
       if (!msg.includes("Timeout")) return { status: "unreachable", error: msg.slice(0, 240) };
+    }
+
+    // Detect cookie-policy redirect: if the site bounced us to a consent/policy page, go back
+    const CONSENT_REDIRECT = /\/(cookie[_-]?policy|privacy[_-]?policy|consent|gdpr|cookies)\/?(\?|#|$)/i;
+    if (CONSENT_REDIRECT.test(page.url()) && page.url() !== input.url) {
+      // Navigate back to the target — consent cookies are now set in context
+      try {
+        await page.goto(input.url, { waitUntil: "load", timeout: NAV_TIMEOUT });
+      } catch {
+        // Fall through with whatever loaded
+      }
     }
 
     // Extra settle time for JS-heavy pages (React hydration, lazy ad loaders, etc.)
