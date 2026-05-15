@@ -176,8 +176,15 @@ export async function requestPasswordResetAction(_prev: unknown, formData: FormD
       token,
       expiresAt: addHours(new Date(), 4),
     });
-    await sendPasswordResetEmail(user.email, token);
+    try {
+      await sendPasswordResetEmail(user.email, token);
+      console.log(`[password-reset] email sent to ${user.email}`);
+    } catch (err) {
+      console.error(`[password-reset] failed to send email to ${user.email}:`, err);
+    }
     await logActivity({ userId: user.id, email: user.email, action: "password_reset_requested" });
+  } else {
+    console.log(`[password-reset] no user found for email: ${parsed.data.email}`);
   }
 
   return { ok: true as const, message: "If that email exists, a reset link has been sent." };

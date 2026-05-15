@@ -20,29 +20,34 @@ const createSchema = z.object({
 });
 
 export async function createProject(formData: FormData) {
-  const me = await requireUser();
-  const parsed = createSchema.safeParse({
-    brand: formData.get("brand"),
-    campaign: formData.get("campaign"),
-  });
-  if (!parsed.success) return { error: "Enter a brand and campaign." };
+  try {
+    const me = await requireUser();
+    const parsed = createSchema.safeParse({
+      brand: formData.get("brand"),
+      campaign: formData.get("campaign"),
+    });
+    if (!parsed.success) return { error: "Enter a brand and campaign." };
 
-  const [p] = await db
-    .insert(projects)
-    .values({ ownerUserId: me.userId, brand: parsed.data.brand, campaign: parsed.data.campaign })
-    .returning({ id: projects.id });
+    const [p] = await db
+      .insert(projects)
+      .values({ ownerUserId: me.userId, brand: parsed.data.brand, campaign: parsed.data.campaign })
+      .returning({ id: projects.id });
 
-  await logActivity({
-    userId: me.userId,
-    email: me.email,
-    action: "project_created",
-    targetType: "project",
-    targetId: p.id,
-    details: parsed.data,
-  });
+    await logActivity({
+      userId: me.userId,
+      email: me.email,
+      action: "project_created",
+      targetType: "project",
+      targetId: p.id,
+      details: parsed.data,
+    });
 
-  revalidatePath("/projects");
-  return { id: p.id };
+    revalidatePath("/projects");
+    return { id: p.id };
+  } catch (err) {
+    console.error("[createProject]", err);
+    return { error: "Failed to create project. Please try again." };
+  }
 }
 
 async function ownedProject(projectId: string, userId: string) {

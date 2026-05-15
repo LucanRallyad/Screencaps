@@ -26,8 +26,8 @@ export function CreateProjectButton() {
   function submit(formData: FormData) {
     start(async () => {
       const res = await createProject(formData);
-      if ("error" in res) {
-        toast.error(res.error);
+      if (!res || "error" in res) {
+        toast.error(res?.error ?? "Something went wrong. Please try again.");
         return;
       }
       toast.success("Project created");
