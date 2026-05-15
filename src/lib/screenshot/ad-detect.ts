@@ -108,11 +108,10 @@ export async function detectAdSlots(page: Page): Promise<DetectedSlot[]> {
  */
 export async function replaceSlots(
   page: Page,
-  replacements: { selectorId: string; dataUrl: string; width: number; height: number }[],
-  badgeDataUrl?: string,
+  replacements: { selectorId: string; dataUrl: string; width: number; height: number; badgeDataUrl?: string | null; badgeType?: "icon" | "text" | "none" }[],
 ): Promise<number> {
   try {
-    return await page.evaluate(({ reps, badge }) => {
+    return await page.evaluate((reps) => {
       let n = 0;
       for (const r of reps) {
         const el = document.querySelector<HTMLElement>(`[data-screencaps-slot="${r.selectorId}"]`);
@@ -125,19 +124,24 @@ export async function replaceSlots(
         img.style.cssText = `width:${r.width}px;height:${r.height}px;display:block;object-fit:cover;`;
         img.alt = "Ad preview";
         wrap.appendChild(img);
-        // AdChoices badge — top-right corner
-        if (badge) {
-          const badgeImg = document.createElement("img");
-          badgeImg.src = badge;
-          badgeImg.style.cssText = `position:absolute;top:4px;right:4px;width:28px;height:28px;object-fit:contain;z-index:10;`;
-          badgeImg.alt = "AdChoices";
-          wrap.appendChild(badgeImg);
+        if (r.badgeDataUrl && r.badgeType && r.badgeType !== "none") {
+          const badge = document.createElement("img");
+          badge.src = r.badgeDataUrl;
+          badge.alt = "AdChoices";
+          if (r.badgeType === "icon") {
+            // Icon-only: small, top-right
+            badge.style.cssText = `position:absolute;top:4px;right:4px;width:28px;height:28px;object-fit:contain;z-index:10;`;
+          } else {
+            // Text logo: wider, top-left
+            badge.style.cssText = `position:absolute;top:4px;left:4px;width:80px;height:22px;object-fit:contain;object-position:left center;z-index:10;`;
+          }
+          wrap.appendChild(badge);
         }
         el.replaceWith(wrap);
         n++;
       }
       return n;
-    }, { reps: replacements, badge: badgeDataUrl ?? null });
+    }, replacements);
   } catch {
     return 0;
   }

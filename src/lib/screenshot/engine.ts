@@ -8,16 +8,22 @@ import { dismissPopups } from "./popups";
 import { detectAdSlots, replaceSlots, restoreSlots } from "./ad-detect";
 import { injectBrowserBar, removeBrowserBar } from "./browser-bar";
 
-let _adChoicesBadge: string | null | undefined;
-async function getAdChoicesBadge(): Promise<string | null> {
-  if (_adChoicesBadge !== undefined) return _adChoicesBadge;
+let _badgeIcon: string | null | undefined;
+let _badgeText: string | null | undefined;
+
+async function loadBadge(filename: string): Promise<string | null> {
   try {
-    const buf = await fs.readFile(path.join(process.cwd(), "public", "adchoices.jpg"));
-    _adChoicesBadge = `data:image/jpeg;base64,${buf.toString("base64")}`;
+    const buf = await fs.readFile(path.join(process.cwd(), "public", filename));
+    return `data:image/jpeg;base64,${buf.toString("base64")}`;
   } catch {
-    _adChoicesBadge = null;
+    return null;
   }
-  return _adChoicesBadge;
+}
+
+async function getBadges(): Promise<{ icon: string | null; text: string | null }> {
+  if (_badgeIcon === undefined) _badgeIcon = await loadBadge("adchoices.jpg");
+  if (_badgeText === undefined) _badgeText = await loadBadge("ad-choices.jpg");
+  return { icon: _badgeIcon ?? null, text: _badgeText ?? null };
 }
 
 export type AdAsset = {
@@ -241,7 +247,7 @@ async function captureViewports(
   startOrder: number,
 ): Promise<SavedScreenshot[]> {
   const { width: vw, height: vh } = profile.viewport;
-  const badge = await getAdChoicesBadge();
+  const { icon: badgeIcon, text: badgeText } = await getBadges();
   const results: SavedScreenshot[] = [];
   const dir = path.join(SCREENSHOT_DIR, input.projectId, input.targetId);
   await fs.mkdir(dir, { recursive: true });
@@ -296,7 +302,7 @@ async function captureViewports(
       (s) => s.top >= scrollY - 50 && s.top < scrollY + vh + 50,
     );
 
-    const toReplace: { selectorId: string; dataUrl: string; width: number; height: number }[] = [];
+    const toReplace: { selectorId: string; dataUrl: string; width: number; height: number; badgeDataUrl: string | null; badgeType: "icon" | "text" | "none" }[] = [];
     const replacedIds: string[] = [];
     const used = new Set<string>();
 
@@ -304,7 +310,11 @@ async function captureViewports(
       const ad = pickBestAd(ads, slot.width, slot.height, used);
       if (!ad) continue;
       const dataUrl = await readAsDataUrl(ad.storagePath, ad.mimeType);
-      toReplace.push({ selectorId: slot.selectorId, dataUrl, width: slot.width, height: slot.height });
+      // Randomly assign badge: ~33% icon (top-right), ~33% text (top-left), ~33% none
+      const roll = Math.random();
+      const badgeType: "icon" | "text" | "none" = roll < 0.33 ? "icon" : roll < 0.66 ? "text" : "none";
+      const badgeDataUrl = badgeType === "icon" ? (badgeIcon ?? null) : badgeType === "text" ? (badgeText ?? null) : null;
+      toReplace.push({ selectorId: slot.selectorId, dataUrl, width: slot.width, height: slot.height, badgeDataUrl, badgeType });
       replacedIds.push(slot.selectorId);
       used.add(ad.id);
       if (used.size === ads.length) used.clear();
@@ -313,7 +323,7 @@ async function captureViewports(
     // Skip this position entirely if nothing matched
     if (toReplace.length === 0) continue;
 
-    const adsOnPage = await replaceSlots(page, toReplace, badge ?? undefined);
+    const adsOnPage = await replaceSlots(page, toReplace);
     if (adsOnPage === 0) {
       await restoreSlots(page, replacedIds).catch(() => {});
       continue;
