@@ -8,7 +8,7 @@ node_modules/
 dist/
 build/
 uploads/
-screenshots/
+/screenshots/
 .cache/
 playwright-report/
 test-results/
