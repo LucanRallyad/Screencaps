@@ -1,6 +1,7 @@
 import "server-only";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { getIronSession, type SessionOptions } from "iron-session";
+import { redirect } from "next/navigation";
 
 export type SessionData = {
   userId?: string;
@@ -25,14 +26,26 @@ export async function getSession() {
   return getIronSession<SessionData>(cookieStore, sessionOptions);
 }
 
+async function currentPath() {
+  const h = await headers();
+  return h.get("x-invoke-path") ?? h.get("x-pathname") ?? "/";
+}
+
 export async function requireUser() {
   const session = await getSession();
-  if (!session.userId) throw new Error("UNAUTHENTICATED");
+  if (!session.userId) {
+    const path = await currentPath();
+    redirect(`/login?next=${encodeURIComponent(path)}`);
+  }
   return { userId: session.userId, email: session.email!, role: session.role! };
 }
 
 export async function requireAdmin() {
   const session = await getSession();
-  if (!session.userId || session.role !== "admin") throw new Error("UNAUTHORIZED");
-  return { userId: session.userId, email: session.email!, role: session.role };
+  if (!session.userId) {
+    const path = await currentPath();
+    redirect(`/login?next=${encodeURIComponent(path)}`);
+  }
+  if (session.role !== "admin") redirect("/projects");
+  return { userId: session.userId!, email: session.email!, role: session.role as "admin" };
 }

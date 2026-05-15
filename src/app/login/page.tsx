@@ -2,7 +2,9 @@ import Link from "next/link";
 import { LoginForm } from "./login-form";
 import { AuthShell } from "@/components/auth/auth-shell";
 
-export default function LoginPage() {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+  const { next } = await searchParams;
+  const safeNext = next?.startsWith("/") ? next : undefined;
   return (
     <AuthShell>
       <div className="flex flex-col gap-2">
@@ -11,7 +13,7 @@ export default function LoginPage() {
           Screencaps is invite-only. Use the credentials you set after accepting your invite.
         </p>
       </div>
-      <LoginForm />
+      <LoginForm next={safeNext} />
       <div className="flex items-center justify-between text-xs text-muted-foreground pt-2">
         <Link href="/forgot-password" className="hover:text-foreground underline-offset-4 hover:underline">
           Forgot password?

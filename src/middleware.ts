@@ -22,7 +22,9 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const res = NextResponse.next();
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-pathname", pathname);
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
   // iron-session 8 accepts a CookieStore-like object; bridge Next's RequestCookies
   // into a minimal one that exposes the get/set/delete API it expects.
   const cookieBridge = {

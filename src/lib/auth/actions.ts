@@ -46,7 +46,9 @@ export async function loginAction(_prev: unknown, formData: FormData) {
   await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
   await logActivity({ userId: user.id, email: user.email, action: "login" });
 
-  redirect("/projects");
+  const next = formData.get("next");
+  const destination = typeof next === "string" && next.startsWith("/") ? next : "/projects";
+  redirect(destination);
 }
 
 // ─── Logout ──────────────────────────────────────────────────────────────────
