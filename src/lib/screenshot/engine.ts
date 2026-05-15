@@ -210,14 +210,26 @@ export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome
     await dismissPopups(page);
     await page.waitForTimeout(400);
 
+    // Final check: if we're still on a cookie/privacy policy page after all that, give up
+    const POLICY_PATH = /\/(cookie[_-]?policy|privacy[_-]?policy|consent|gdpr|cookies)\/?(\?|#|$)/i;
+    const finalUrl = page.url();
+    if (POLICY_PATH.test(finalUrl)) {
+      return { status: "unreachable", error: `Redirected to policy page: ${finalUrl}` };
+    }
+
+    // Also check page title for cookie/privacy policy pages
+    const pageTitle = await safeEval(page, () => document.title?.toLowerCase() ?? "", "");
+    if (/cookie policy|privacy policy|cookie notice/i.test(pageTitle as string)) {
+      return { status: "unreachable", error: `Page appears to be a cookie/privacy policy: ${pageTitle}` };
+    }
+
     // Detect all ad slots (stores originals in page for later restoration)
     const slots = await detectAdSlots(page, input.adDomains);
     const currentUrl = page.url();
 
     if (slots.length === 0) {
-      await injectBrowserBar(page, currentUrl, input.device === "mobile");
-      const refShots = await captureViewports(page, input, profile, [], input.ads, 0);
-      return { status: "no_ad_slots", adSlotsFound: 0, popupsDismissed, screenshots: refShots };
+      // No ad slots found — don't save reference screenshots, just record the status
+      return { status: "no_ad_slots", adSlotsFound: 0, popupsDismissed, screenshots: [] };
     }
 
     await injectBrowserBar(page, currentUrl, input.device === "mobile");
@@ -303,15 +315,8 @@ async function captureViewports(
   const pageBodyLen = await safeEval(page, () => document.body?.innerText?.trim().length ?? 0, 0);
   if ((pageBodyLen as number) < 100) return results; // page didn't load meaningful content
 
-  // ── Reference shot when no ads exist ─────────────────────────────────────────
-  if (slots.length === 0 || ads.length === 0) {
-    const storagePath = path.join(dir, `${input.device}-ref-${randomUUID().slice(0, 8)}.png`);
-    try {
-      await page.screenshot({ path: storagePath, type: "png" });
-      results.push({ storagePath, pageUrl: page.url(), viewport: input.device, width: vw, height: vh, adsOnPage: 0, order: startOrder });
-    } catch {}
-    return results;
-  }
+  // No ads to replace — return empty (caller handles status)
+  if (slots.length === 0 || ads.length === 0) return results;
 
   // ── Build targeted scroll positions ──────────────────────────────────────────
   // Filter to slots that have at least one size-matching creative.

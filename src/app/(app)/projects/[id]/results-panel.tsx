@@ -84,7 +84,7 @@ export function ResultsPanel({
 
   const active = targets.find((t) => t.id === activeTarget);
   const shotsForActive = screenshots.filter(
-    (s) => s.targetId === activeTarget && s.viewport === activeView,
+    (s) => s.targetId === activeTarget && s.viewport === activeView && s.adsOnPage > 0,
   ).sort((a, b) => a.order - b.order);
 
   return (
