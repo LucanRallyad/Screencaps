@@ -11,11 +11,16 @@ import { captureTarget, closeBrowser, type AdAsset } from "@/lib/screenshot/engi
 import { db } from "@/lib/db/client";
 import { ads, projects, screenshots, targets, users } from "@/lib/db/schema";
 import { sendProjectCompleteEmail } from "@/lib/email/send";
+import { syncAdDomains, loadAdDomainSet } from "@/lib/ad-domains/sync";
 
 const concurrency = Number(process.env.WORKER_CONCURRENCY ?? "2");
 
 async function main() {
   console.log(`[worker] starting (concurrency=${concurrency})`);
+
+  // Sync ad domain blocklist (no-op if synced within 90 days)
+  syncAdDomains().catch((err) => console.error("[ad-domains] sync failed:", err));
+
   const boss = await getBoss();
   await boss.createQueue(QUEUE_CAPTURE).catch(() => {});
 
@@ -75,9 +80,13 @@ async function _processJob(data: CaptureJobData, jobId: string) {
     id: a.id, width: a.width, height: a.height, storagePath: a.storagePath, mimeType: a.mimeType,
   }));
 
+  // Load ad domain blocklist (cached in memory after first load)
+  const adDomains = await loadAdDomainSet().catch(() => new Set<string>());
+
   const result = await captureTarget({
     projectId, targetId, url, device, ads: adAssets,
     followInternalLinks: project.followInternalLinks,
+    adDomains,
   });
 
   if (result.status === "unreachable" || result.status === "failed") {

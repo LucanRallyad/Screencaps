@@ -21,11 +21,15 @@ export const COMMON_AD_SIZES: ReadonlyArray<{ w: number; h: number }> = [
  * Detect ad slots. Stores each slot's original outerHTML in
  * window.__screencaps_originals so we can restore after replacing.
  */
-export async function detectAdSlots(page: Page): Promise<DetectedSlot[]> {
+export async function detectAdSlots(page: Page, adDomainSet?: Set<string>): Promise<DetectedSlot[]> {
   const sizes = COMMON_AD_SIZES.map(({ w, h }) => [w, h] as [number, number]);
+  // Convert Set to array for serialisation into page.evaluate
+  const knownDomains = adDomainSet ? Array.from(adDomainSet) : [];
   try {
-    return await page.evaluate((sizes) => {
+    return await page.evaluate(({ sizes, knownDomains }) => {
       const tolerance = 4;
+      const domainSet = new Set(knownDomains);
+
       const networkPatterns = [
         { name: "gpt",        rx: /(googletag|googlesyndication|doubleclick|google_ads_iframe|gpt)/i },
         { name: "criteo",     rx: /(criteo|cas\.criteo)/i },
@@ -39,8 +43,17 @@ export async function detectAdSlots(page: Page): Promise<DetectedSlot[]> {
         { name: "indexex",    rx: /(indexexchange|casalemedia)/i },
       ];
 
+      function srcDomain(src: string | null): string {
+        if (!src) return "";
+        try { return new URL(src).hostname.replace(/^www\./, ""); } catch { return ""; }
+      }
+
       function describeNetwork(el: Element): string | null {
-        const h = [el.getAttribute("src") ?? "", el.id, typeof el.className === "string" ? el.className : ""].join(" ");
+        const src = el.getAttribute("src") ?? "";
+        // Check blocklist domain match first
+        const domain = srcDomain(src);
+        if (domain && domainSet.has(domain)) return "blocklist";
+        const h = [src, el.id, typeof el.className === "string" ? el.className : ""].join(" ");
         const parent = el.parentElement;
         const ph = parent ? [parent.id, typeof parent.className === "string" ? parent.className : ""].join(" ") : "";
         for (const { name, rx } of networkPatterns) if (rx.test(h + ph)) return name;
@@ -59,6 +72,7 @@ export async function detectAdSlots(page: Page): Promise<DetectedSlot[]> {
         const cs = getComputedStyle(iframe);
         if (cs.display === "none" || cs.visibility === "hidden") return;
         const network = describeNetwork(iframe);
+        // Match by: known network, blocklist domain, OR standard IAB size
         const matchSize = sizes.some(([sw, sh]) => Math.abs(sw - w) <= tolerance && Math.abs(sh - h) <= tolerance);
         if (network || matchSize) {
           seen.add(iframe);
@@ -96,7 +110,7 @@ export async function detectAdSlots(page: Page): Promise<DetectedSlot[]> {
       }
       out.sort((a, b) => a.top - b.top);
       return out;
-    }, sizes);
+    }, { sizes, knownDomains });
   } catch {
     return [];
   }

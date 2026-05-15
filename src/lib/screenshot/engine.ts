@@ -65,6 +65,7 @@ export type CaptureInput = {
   device: "desktop" | "mobile";
   ads: AdAsset[];
   followInternalLinks: boolean;
+  adDomains?: Set<string>;
 };
 
 const SCREENSHOT_DIR = process.env.SCREENSHOT_DIR ?? "./screenshots";
@@ -210,7 +211,7 @@ export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome
     await page.waitForTimeout(400);
 
     // Detect all ad slots (stores originals in page for later restoration)
-    const slots = await detectAdSlots(page);
+    const slots = await detectAdSlots(page, input.adDomains);
     const currentUrl = page.url();
 
     if (slots.length === 0) {

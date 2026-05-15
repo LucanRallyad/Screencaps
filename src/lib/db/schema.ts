@@ -206,6 +206,23 @@ export const activityLogs = pgTable(
   }),
 );
 
+// ─── Ad Domain Blocklist ─────────────────────────────────────────────────────
+
+export const adDomains = pgTable(
+  "ad_domains",
+  {
+    domain: text("domain").primaryKey(),
+    source: varchar("source", { length: 16 }).notNull().default("github"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+);
+
+export const appSettings = pgTable("app_settings", {
+  key: varchar("key", { length: 64 }).primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ─── Relations ───────────────────────────────────────────────────────────────
 
 export const usersRelations = relations(users, ({ many }) => ({
