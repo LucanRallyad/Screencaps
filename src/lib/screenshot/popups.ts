@@ -14,11 +14,12 @@ export async function dismissPopups(page: Page): Promise<number> {
         "accept all", "accept cookies", "accept", "agree", "i agree",
         "got it", "ok", "okay", "allow all", "allow", "continue",
         "i accept", "accept & continue", "consent", "yes, i agree",
+        "reject all", "reject", "decline all",
         "tout accepter", "accepter", "akzeptieren", "alle akzeptieren",
         "aceptar", "aceptar todo", "accetta", "accetta tutti",
         "aceitar", "aceitar todos", "zgadzam", "akceptuj",
       ];
-      const CLOSE_TEXTS = ["close", "no thanks", "no, thanks", "decline", "dismiss", "skip", "later", "×", "✕", "x"];
+      const CLOSE_TEXTS = ["close", "no thanks", "no, thanks", "dismiss", "skip", "later", "×", "✕", "x"];
 
       const matchesText = (el: Element, list: string[]) => {
         const t = (el.textContent ?? "").trim().toLowerCase();
@@ -43,8 +44,17 @@ export async function dismissPopups(page: Page): Promise<number> {
         '[aria-label*="Accept"][aria-label*="cookies" i]',
         '[id*="didomi"][id*="agree"]',
         ".qc-cmp2-summary-buttons button:nth-of-type(2)",
-        ".fc-cta-consent", // Google FundingChoices
+        ".fc-cta-consent",
         '[aria-label*="Consent"]',
+        // Yahoo / Verizon Media (guce consent)
+        ".guce-consent-o-header ~ div button:first-of-type",
+        '[class*="guce"] button[name="agree"]',
+        '[class*="consent"] button[name="agree"]',
+        'button[name="agree"]',
+        // Generic TCF/IAB "Accept all" primary action buttons
+        ".sp_choice_type_ACCEPT_ALL",
+        ".message-component.privacy-manager-tcfv2 .accept-all",
+        '[data-choice-type="ACCEPT_ALL"]',
       ];
       for (const sel of KNOWN_SELECTORS) {
         document.querySelectorAll<HTMLElement>(sel).forEach((el) => {

@@ -32,17 +32,17 @@ export async function injectBrowserBar(page: Page, url: string, isMobile: boolea
   border-bottom:1px solid rgba(255,255,255,0.06);
 ">
   <!-- Back -->
-  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;opacity:0.55;cursor:default;">
-    <path d="M10 3L5.5 8L10 13" stroke="#bdc1c6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;opacity:0.65;cursor:default;">
+    <path d="M10 3L5.5 8L10 13" stroke="#bdc1c6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>
-  <!-- Forward (dimmer — can't go forward) -->
-  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;opacity:0.25;cursor:default;">
-    <path d="M6 3L10.5 8L6 13" stroke="#bdc1c6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Forward (disabled — can't go forward) -->
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;opacity:0.35;cursor:default;">
+    <path d="M6 3L10.5 8L6 13" stroke="#bdc1c6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>
   <!-- Reload -->
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;opacity:0.55;cursor:default;margin-right:2px;">
-    <path d="M13.5 8A5.5 5.5 0 1 1 10 3.1" stroke="#bdc1c6" stroke-width="1.6" stroke-linecap="round"/>
-    <path d="M10 1v2.5H12.5" stroke="#bdc1c6" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="flex-shrink:0;opacity:0.65;cursor:default;margin-right:2px;">
+    <path d="M13.5 8A5.5 5.5 0 1 1 10 3.1" stroke="#bdc1c6" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M10 1v2.5H12.5" stroke="#bdc1c6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>
 
   <!-- URL field — fills most of the bar -->

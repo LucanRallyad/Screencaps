@@ -133,6 +133,10 @@ export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome
     await safeEval(page, () => { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); return null; }, null);
     await page.waitForTimeout(800);
 
+    // Second dismissal pass — catches popups that appear on scroll (e.g. Yahoo consent)
+    await dismissPopups(page);
+    await page.waitForTimeout(400);
+
     // Detect all ad slots (stores originals in page for later restoration)
     const slots = await detectAdSlots(page);
     const currentUrl = page.url();

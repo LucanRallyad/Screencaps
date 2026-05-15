@@ -124,6 +124,8 @@ export async function replaceSlots(
         img.style.cssText = `width:${r.width}px;height:${r.height}px;display:block;object-fit:cover;`;
         img.alt = "Ad preview";
         wrap.appendChild(img);
+        // AdChoices badge — two white icon boxes, top-right corner
+        wrap.insertAdjacentHTML("beforeend", `<div style="position:absolute;top:4px;right:4px;display:flex;gap:2px;z-index:10;"><div style="width:22px;height:22px;background:#fff;border-radius:3px;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,0.2);"><svg width="11" height="11" viewBox="0 0 11 11" fill="none"><polygon points="2,1.5 9.5,5.5 2,9.5" fill="#1a56db"/></svg></div><div style="width:22px;height:22px;background:#fff;border-radius:3px;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,0.2);"><svg width="4" height="11" viewBox="0 0 4 11" fill="none"><circle cx="2" cy="1.5" r="1.5" fill="#374151"/><circle cx="2" cy="5.5" r="1.5" fill="#374151"/><circle cx="2" cy="9.5" r="1.5" fill="#374151"/></svg></div></div>`);
         el.replaceWith(wrap);
         n++;
       }
