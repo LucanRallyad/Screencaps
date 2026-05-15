@@ -117,21 +117,29 @@ export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome
     try {
     page = await context.newPage();
 
-    // Navigate
+    // Navigate — wait for load event so subresources and dynamic content settle
     try {
-      await page.goto(input.url, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT });
+      await page.goto(input.url, { waitUntil: "load", timeout: NAV_TIMEOUT });
     } catch (err) {
-      return { status: "unreachable", error: (err as Error).message.slice(0, 240) };
+      // "load" timed out — try proceeding with whatever loaded (domcontentloaded already fired)
+      const msg = (err as Error).message;
+      if (!msg.includes("Timeout")) return { status: "unreachable", error: msg.slice(0, 240) };
     }
 
-    await page.waitForTimeout(1800);
+    // Extra settle time for JS-heavy pages (React hydration, lazy ad loaders, etc.)
+    await page.waitForTimeout(2500);
+
+    // Failsafe: if page body has very little text the page is still loading — wait more
+    const bodyLen = await safeEval(page, () => document.body?.innerText?.length ?? 0, 0);
+    if ((bodyLen as number) < 200) await page.waitForTimeout(2000);
+
     const popupsDismissed = await dismissPopups(page);
     await page.waitForTimeout(600);
 
     // Scroll to bottom to trigger lazy-loaded ads, then back to top
     await autoScroll(page);
     await safeEval(page, () => { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); return null; }, null);
-    await page.waitForTimeout(800);
+    await page.waitForTimeout(1000);
 
     // Second dismissal pass — catches popups that appear on scroll (e.g. Yahoo consent)
     await dismissPopups(page);
@@ -225,7 +233,11 @@ async function captureViewports(
   const dir = path.join(SCREENSHOT_DIR, input.projectId, input.targetId);
   await fs.mkdir(dir, { recursive: true });
 
-  // ── Reference shot when no ads exist ────────────────────────────────────────
+  // ── Failsafe: skip capture if page still looks like a loading screen ─────────
+  const pageBodyLen = await safeEval(page, () => document.body?.innerText?.trim().length ?? 0, 0);
+  if ((pageBodyLen as number) < 100) return results; // page didn't load meaningful content
+
+  // ── Reference shot when no ads exist ─────────────────────────────────────────
   if (slots.length === 0 || ads.length === 0) {
     const storagePath = path.join(dir, `${input.device}-ref-${randomUUID().slice(0, 8)}.png`);
     try {
