@@ -172,10 +172,15 @@ async function maybeCompleteProject(projectId: string) {
   const allFailed = targetRows.every((r) => r.status === "failed" || r.status === "unreachable");
   const finalStatus = allFailed ? "failed" : "completed";
 
-  await db
+  // Atomic: only update (and email) if WE are the job that transitions the project to final state.
+  // If another concurrent job already did it, this returns 0 rows and we skip the email.
+  const updated = await db
     .update(projects)
     .set({ status: finalStatus, updatedAt: new Date() })
-    .where(eq(projects.id, projectId));
+    .where(sql`${projects.id} = ${projectId} AND ${projects.status} NOT IN ('completed', 'failed')`)
+    .returning({ id: projects.id });
+
+  if (updated.length === 0) return; // another job already finalised and emailed
 
   // Send completion email to the project owner
   try {
