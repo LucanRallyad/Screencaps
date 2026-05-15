@@ -90,22 +90,25 @@ async function _processJob(data: CaptureJobData, jobId: string) {
   });
 
   if (result.status === "unreachable" || result.status === "failed") {
+    // Only write terminal error if target hasn't already been marked better by the other viewport job
     await db.update(targets)
       .set({
         status: result.status === "unreachable" ? "unreachable" : "failed",
         errorMessage: result.error,
         completedAt: new Date(),
       })
-      .where(eq(targets.id, targetId));
+      .where(sql`${targets.id} = ${targetId} AND ${targets.status} = 'processing'`);
+
   } else if (result.status === "no_ad_slots") {
-    // Save the reference screenshots (if any) and mark
+    // Save reference screenshots
     for (const s of result.screenshots) {
       await db.insert(screenshots).values({
         targetId, viewport: s.viewport, pageUrl: s.pageUrl,
         storagePath: s.storagePath, width: s.width, height: s.height,
         adsOnPage: 0, order: s.order,
-      });
+      }).onConflictDoNothing();
     }
+    // Only write no_ad_slots if the other viewport job hasn't already set completed
     await db.update(targets)
       .set({
         status: "no_ad_slots",
@@ -114,29 +117,42 @@ async function _processJob(data: CaptureJobData, jobId: string) {
         completedAt: new Date(),
         metadata: { popupsDismissed: result.popupsDismissed },
       })
-      .where(eq(targets.id, targetId));
+      .where(sql`${targets.id} = ${targetId} AND ${targets.status} NOT IN ('completed')`);
+
   } else {
-    for (const s of result.screenshots) {
-      await db.insert(screenshots).values({
-        targetId, viewport: s.viewport, pageUrl: s.pageUrl,
-        storagePath: s.storagePath, width: s.width, height: s.height,
-        adsOnPage: s.adsOnPage, order: s.order,
-      });
+    // completed — but if no screenshots were actually saved (size mismatch), treat as no_ad_slots
+    if (result.screenshots.length === 0) {
+      await db.update(targets)
+        .set({
+          status: "no_ad_slots",
+          adSlotsFound: result.adSlotsFound,
+          adsReplaced: 0,
+          completedAt: new Date(),
+        })
+        .where(sql`${targets.id} = ${targetId} AND ${targets.status} NOT IN ('completed')`);
+    } else {
+      for (const s of result.screenshots) {
+        await db.insert(screenshots).values({
+          targetId, viewport: s.viewport, pageUrl: s.pageUrl,
+          storagePath: s.storagePath, width: s.width, height: s.height,
+          adsOnPage: s.adsOnPage, order: s.order,
+        }).onConflictDoNothing();
+      }
+      // Accumulate adSlotsFound/adsReplaced across both viewport jobs
+      await db.update(targets)
+        .set({
+          status: "completed",
+          adSlotsFound: sql`COALESCE(${targets.adSlotsFound}, 0) + ${result.adSlotsFound}`,
+          adsReplaced: sql`COALESCE(${targets.adsReplaced}, 0) + ${result.adsReplaced}`,
+          completedAt: new Date(),
+          metadata: {
+            popupsDismissed: result.popupsDismissed,
+            internalLinksVisited: result.internalLinksVisited,
+            uniqueAdSizes: result.uniqueAdSizes,
+          },
+        })
+        .where(eq(targets.id, targetId));
     }
-    // Final per-target status: combine both viewports later — but here we mark this device done.
-    await db.update(targets)
-      .set({
-        status: "completed",
-        adSlotsFound: result.adSlotsFound,
-        adsReplaced: result.adsReplaced,
-        completedAt: new Date(),
-        metadata: {
-          popupsDismissed: result.popupsDismissed,
-          internalLinksVisited: result.internalLinksVisited,
-          uniqueAdSizes: result.uniqueAdSizes,
-        },
-      })
-      .where(eq(targets.id, targetId));
   }
 
   // Update project status if all targets completed (or settled)
