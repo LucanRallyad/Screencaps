@@ -130,10 +130,10 @@ export async function replaceSlots(
           badge.alt = "AdChoices";
           if (r.badgeType === "icon") {
             // Icon-only: small, top-right
-            badge.style.cssText = `position:absolute;top:4px;right:4px;width:28px;height:28px;object-fit:contain;z-index:10;`;
+            badge.style.cssText = `position:absolute;top:3px;right:3px;width:16px;height:16px;object-fit:contain;z-index:10;`;
           } else {
-            // Text logo: wider, top-left
-            badge.style.cssText = `position:absolute;top:4px;left:4px;width:80px;height:22px;object-fit:contain;object-position:left center;z-index:10;`;
+            // Text logo: top-left
+            badge.style.cssText = `position:absolute;top:3px;left:3px;width:52px;height:14px;object-fit:contain;object-position:left center;z-index:10;`;
           }
           wrap.appendChild(badge);
         }
