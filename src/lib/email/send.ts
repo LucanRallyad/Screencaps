@@ -12,7 +12,8 @@ async function send(to: string, subject: string, html: string) {
     console.log(`\n[email:dev] to=${to} subject="${subject}"\n${html}\n`);
     return;
   }
-  await resend.emails.send({ from, to, subject, html });
+  const { error } = await resend.emails.send({ from, to, subject, html });
+  if (error) throw new Error(`Resend error: ${error.message}`);
 }
 
 const wrap = (title: string, body: string, ctaUrl: string, ctaLabel: string) => `
