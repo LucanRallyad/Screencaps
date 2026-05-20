@@ -121,7 +121,6 @@ export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome
       isMobile: profile.isMobile,
       hasTouch: profile.hasTouch,
       userAgent: profile.userAgent,
-      bypassCSP: true,
       locale: "en-US",
     });
 
