@@ -91,6 +91,12 @@ export async function detectAdSlots(page: Page, adDomainSet?: Set<string>): Prom
         if (seen.has(el)) return;
         let p: Element | null = el.parentElement;
         while (p) { if (seen.has(p)) return; p = p.parentElement; }
+        // Skip containers that themselves wrap an already-captured slot (e.g. a
+        // broad "ad-container" div around a network iframe we matched above) —
+        // otherwise both get replaced independently and the second replacement
+        // is sized to the wrong (outer/padded) box, landing off-center or not
+        // filling the visible ad frame.
+        for (const s of seen) { if (el.contains(s)) return; }
         const r = el.getBoundingClientRect();
         const w = Math.round(r.width), h = Math.round(r.height);
         if (w < 50 || h < 30) return;

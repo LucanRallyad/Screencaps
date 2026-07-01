@@ -190,6 +190,10 @@ export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome
       }
     }
 
+    // Give the network a chance to go quiet (ad auctions, lazy loaders) — bounded
+    // because ad-heavy pages often poll continuously and never truly go idle.
+    await page.waitForLoadState("networkidle", { timeout: 4000 }).catch(() => {});
+
     // Extra settle time for JS-heavy pages (React hydration, lazy ad loaders, etc.)
     await page.waitForTimeout(2500);
 
@@ -216,8 +220,15 @@ export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome
       return { status: "unreachable", error: `Redirected to policy page: ${finalUrl}` };
     }
 
-    // Detect all ad slots (stores originals in page for later restoration)
-    const slots = await detectAdSlots(page, input.adDomains);
+    // Detect all ad slots (stores originals in page for later restoration).
+    // Many ad networks (GAM, prebid) resolve their auction and inject/resize the
+    // slot a few seconds after the page otherwise looks settled — retry a couple
+    // times before concluding there's nothing here.
+    let slots = await detectAdSlots(page, input.adDomains);
+    for (let attempt = 0; slots.length === 0 && attempt < 2; attempt++) {
+      await page.waitForTimeout(3000);
+      slots = await detectAdSlots(page, input.adDomains);
+    }
     const currentUrl = page.url();
 
     if (slots.length === 0) {
@@ -373,6 +384,13 @@ async function captureViewports(
       continue;
     }
     await page.waitForTimeout(150);
+
+    // Make sure every image currently in the DOM (hero art, lazy-loaded photos,
+    // our own replacement creatives) has actually finished decoding before we
+    // capture — otherwise fast connections still race real assets on-screen.
+    await page
+      .waitForFunction(() => Array.from(document.images).every((img) => img.complete), { timeout: 3000 })
+      .catch(() => {});
 
     const storagePath = path.join(dir, `${input.device}-${order}-${randomUUID().slice(0, 8)}.png`);
     try {
