@@ -86,6 +86,85 @@ export async function closeBrowser() {
   }
 }
 
+// ─── SSRF guard ─────────────────────────────────────────────────────────────
+//
+// We render arbitrary, customer-supplied URLs. Without a guard, a submitted URL
+// (or any redirect / ad / tracker subresource it pulls) could point the browser
+// at our own internal network or the cloud instance-metadata endpoint. We abort
+// any request whose host is a link-local / private / loopback address, or a
+// known metadata hostname.
+//
+// This blocks IP-literal targets and the obvious metadata hostnames. It does NOT
+// resolve DNS, so a domain that resolves to a private IP (or a DNS-rebind) can
+// still slip through — full protection belongs at the network layer (egress
+// security group / firewall). This is the cheap, high-value first line.
+
+const METADATA_HOSTS = new Set([
+  "metadata.google.internal",
+  "metadata.goog",
+]);
+
+function ipv4ToParts(host: string): number[] | null {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!m) return null;
+  const parts = m.slice(1, 5).map(Number);
+  if (parts.some((p) => p > 255)) return null;
+  return parts;
+}
+
+function isBlockedHost(hostname: string): boolean {
+  // Strip IPv6 brackets Playwright/URL leave on literals: [::1]
+  let host = hostname.toLowerCase();
+  if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
+
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (METADATA_HOSTS.has(host)) return true;
+
+  const v4 = ipv4ToParts(host);
+  if (v4) {
+    const [a, b] = v4;
+    if (a === 0) return true;                          // 0.0.0.0/8 "this host"
+    if (a === 127) return true;                        // loopback
+    if (a === 10) return true;                         // private
+    if (a === 172 && b >= 16 && b <= 31) return true;  // private
+    if (a === 192 && b === 168) return true;           // private
+    if (a === 169 && b === 254) return true;           // link-local (incl. IMDS 169.254.169.254)
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    return false;
+  }
+
+  // IPv6 literals
+  if (host.includes(":")) {
+    if (host === "::1" || host === "::") return true;        // loopback / unspecified
+    if (host.startsWith("fe80") || host.startsWith("fe9") ||
+        host.startsWith("fea") || host.startsWith("feb")) return true; // link-local fe80::/10
+    if (host.startsWith("fc") || host.startsWith("fd")) return true;   // unique-local fc00::/7
+    // IPv4-mapped, e.g. ::ffff:169.254.169.254
+    const mapped = /(?:::ffff:)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i.exec(host);
+    if (mapped) return isBlockedHost(mapped[1]);
+    return false;
+  }
+
+  return false;
+}
+
+/** Register a request filter that blocks fetches to internal/metadata hosts. */
+async function installSsrfGuard(context: Awaited<ReturnType<Browser["newContext"]>>) {
+  await context.route("**/*", (route) => {
+    let hostname = "";
+    try {
+      hostname = new URL(route.request().url()).hostname;
+    } catch {
+      return route.abort("addressunreachable");
+    }
+    if (isBlockedHost(hostname)) {
+      console.warn(`[engine] SSRF guard blocked request to ${hostname}`);
+      return route.abort("addressunreachable");
+    }
+    return route.continue();
+  });
+}
+
 // ─── Safe eval — handles "context was destroyed" from mid-eval navigations ───
 
 async function safeEval<T>(page: Page, fn: () => T, fallback: T): Promise<T> {
@@ -123,6 +202,9 @@ export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome
       userAgent: profile.userAgent,
       locale: "en-US",
     });
+
+    // Block requests to internal / link-local / metadata hosts (SSRF guard)
+    await installSsrfGuard(context);
 
     // Shim esbuild's __name helper so page.evaluate callbacks don't throw
     await context.addInitScript(() => {
@@ -179,10 +261,18 @@ export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome
       if (!msg.includes("Timeout")) return { status: "unreachable", error: msg.slice(0, 240) };
     }
 
-    // Detect cookie-policy redirect: if the site bounced us to a consent/policy page, go back
+    // Detect cookie-policy redirect: some publishers route first-time (cookie-less)
+    // visitors through a dedicated consent page — sometimes on a completely
+    // different domain (e.g. a shared corporate privacy hub) — that requires an
+    // actual "Accept" click before letting you through. A real browser with a
+    // prior visit already carries that consent cookie and never sees this wall,
+    // which is why this can look "unreachable" here but load fine by hand.
+    // Try clicking through it (up to twice) before giving up and going back.
     const CONSENT_REDIRECT = /\/(cookie[_-]?policy|privacy[_-]?policy|consent|gdpr|cookies)\/?(\?|#|$)/i;
-    if (CONSENT_REDIRECT.test(page.url()) && page.url() !== input.url) {
-      // Navigate back to the target — consent cookies are now set in context
+    for (let attempt = 0; attempt < 2 && CONSENT_REDIRECT.test(page.url()) && page.url() !== input.url; attempt++) {
+      await page.waitForTimeout(800);
+      await dismissPopups(page);
+      await page.waitForTimeout(600);
       try {
         await page.goto(input.url, { waitUntil: "load", timeout: NAV_TIMEOUT });
       } catch {
@@ -213,11 +303,15 @@ export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome
     await dismissPopups(page);
     await page.waitForTimeout(400);
 
-    // If the URL itself is a policy page we definitely redirected there — give up
+    // Still stuck on a consent/policy page after retrying — the site isn't
+    // actually down, it just won't let a cookie-less first-time visitor through.
     const POLICY_PATH = /\/(cookie[_-]?policy|privacy[_-]?policy|consent|gdpr|cookies)\/?(\?|#|$)/i;
     const finalUrl = page.url();
     if (POLICY_PATH.test(finalUrl)) {
-      return { status: "unreachable", error: `Redirected to policy page: ${finalUrl}` };
+      return {
+        status: "unreachable",
+        error: `Blocked by a cookie-consent wall (couldn't get past ${finalUrl}) — the site loads fine in a browser with prior visit history, but rejects a fresh, cookie-less visitor`,
+      };
     }
 
     // Detect all ad slots (stores originals in page for later restoration).
