@@ -5,7 +5,7 @@ import fs from "node:fs";
 import { db } from "@/lib/db/client";
 import { projects, screenshots, targets } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { getSession } from "@/lib/auth/session";
+import { getSession, canAccessAllProjects } from "@/lib/auth/session";
 import { logActivity } from "@/lib/activity";
 import { slugify } from "@/lib/utils";
 
@@ -16,11 +16,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   if (!session.userId) return new NextResponse("Unauthorized", { status: 401 });
 
   const { id } = await ctx.params;
-  const [project] = await db
-    .select()
-    .from(projects)
-    .where(and(eq(projects.id, id), eq(projects.ownerUserId, session.userId)))
-    .limit(1);
+  // Owner, or an admin/manager (read access) may download the archive.
+  const ownerFilter = canAccessAllProjects(session)
+    ? eq(projects.id, id)
+    : and(eq(projects.id, id), eq(projects.ownerUserId, session.userId));
+  const [project] = await db.select().from(projects).where(ownerFilter).limit(1);
   if (!project) return new NextResponse("Not found", { status: 404 });
 
   // Only include screenshots from successfully captured targets

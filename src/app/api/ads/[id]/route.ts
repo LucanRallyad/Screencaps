@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import { db } from "@/lib/db/client";
 import { ads, projects } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { getSession } from "@/lib/auth/session";
+import { getSession, canAccessAllProjects } from "@/lib/auth/session";
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const session = await getSession();
@@ -18,7 +18,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
     .limit(1);
 
   if (!row) return new NextResponse("Not found", { status: 404 });
-  if (row.project.ownerUserId !== session.userId && session.role !== "admin") {
+  if (row.project.ownerUserId !== session.userId && !canAccessAllProjects(session)) {
     return new NextResponse("Forbidden", { status: 403 });
   }
 

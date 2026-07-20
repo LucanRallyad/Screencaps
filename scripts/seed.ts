@@ -8,8 +8,8 @@ async function main() {
 
   const existing = await db.select().from(users).where(eq(users.email, adminEmail)).limit(1);
   if (existing.length > 0) {
-    if (existing[0].role !== "admin") {
-      await db.update(users).set({ role: "admin" }).where(eq(users.id, existing[0].id));
+    if (!(existing[0].roles ?? []).includes("admin")) {
+      await db.update(users).set({ roles: ["admin"] }).where(eq(users.id, existing[0].id));
       console.log(`Promoted ${adminEmail} to admin.`);
     } else {
       console.log(`Admin ${adminEmail} already exists.`);
@@ -17,10 +17,11 @@ async function main() {
   } else {
     await db.insert(users).values({
       email: adminEmail,
-      role: "admin",
-      // No password yet — admin uses the password-reset / "set initial password" flow on first login.
+      roles: ["admin"],
+      // No local password — the admin signs in via the Internal Portal (SSO).
+      // This row links to the Portal account by email on first SSO login.
     });
-    console.log(`Created admin shell account ${adminEmail}. Use "Forgot password" on the login page to set the password.`);
+    console.log(`Created admin profile ${adminEmail}. Sign in via the Internal Portal (no local password).`);
   }
 
   await pool.end();

@@ -12,7 +12,15 @@ import { toast } from "sonner";
 import { formatBytes } from "@/lib/utils";
 import type { Ad } from "@/lib/db/schema";
 
-export function AdsPanel({ projectId, ads }: { projectId: string; ads: Ad[] }) {
+export function AdsPanel({
+  projectId,
+  ads,
+  readOnly = false,
+}: {
+  projectId: string;
+  ads: Ad[];
+  readOnly?: boolean;
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
 
@@ -47,19 +55,21 @@ export function AdsPanel({ projectId, ads }: { projectId: string; ads: Ad[] }) {
         </div>
       </div>
 
-      <div
-        {...getRootProps()}
-        className={`border border-dashed rounded-lg px-4 py-8 text-center cursor-pointer transition-colors ${
-          isDragActive ? "border-foreground/40 bg-accent/30" : "border-border hover:border-foreground/20"
-        }`}
-      >
-        <input {...getInputProps()} />
-        <div className="flex flex-col items-center gap-2">
-          {pending ? <Loader2 className="size-5 animate-spin text-muted-foreground" /> : <ImagePlus className="size-5 text-muted-foreground" />}
-          <p className="text-sm">{isDragActive ? "Drop files here" : "Drop creatives here, or click to choose"}</p>
-          <p className="text-[11px] text-muted-foreground">Up to 10 MB each</p>
+      {!readOnly && (
+        <div
+          {...getRootProps()}
+          className={`border border-dashed rounded-lg px-4 py-8 text-center cursor-pointer transition-colors ${
+            isDragActive ? "border-foreground/40 bg-accent/30" : "border-border hover:border-foreground/20"
+          }`}
+        >
+          <input {...getInputProps()} />
+          <div className="flex flex-col items-center gap-2">
+            {pending ? <Loader2 className="size-5 animate-spin text-muted-foreground" /> : <ImagePlus className="size-5 text-muted-foreground" />}
+            <p className="text-sm">{isDragActive ? "Drop files here" : "Drop creatives here, or click to choose"}</p>
+            <p className="text-[11px] text-muted-foreground">Up to 10 MB each</p>
+          </div>
         </div>
-      </div>
+      )}
 
       {ads.length > 0 && (
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -71,16 +81,18 @@ export function AdsPanel({ projectId, ads }: { projectId: string; ads: Ad[] }) {
                 <Badge variant="muted" className="font-mono">{ad.width}×{ad.height}</Badge>
                 <span className="text-muted-foreground">{formatBytes(ad.sizeBytes)}</span>
               </div>
-              <button
-                onClick={async () => {
-                  await deleteAdAction(projectId, ad.id);
-                  router.refresh();
-                }}
-                className="opacity-0 group-hover:opacity-100 transition-opacity absolute top-1.5 right-1.5 bg-destructive/90 hover:bg-destructive text-destructive-foreground rounded p-1"
-                aria-label="Delete creative"
-              >
-                <Trash2 className="size-3" />
-              </button>
+              {!readOnly && (
+                <button
+                  onClick={async () => {
+                    await deleteAdAction(projectId, ad.id);
+                    router.refresh();
+                  }}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity absolute top-1.5 right-1.5 bg-destructive/90 hover:bg-destructive text-destructive-foreground rounded p-1"
+                  aria-label="Delete creative"
+                >
+                  <Trash2 className="size-3" />
+                </button>
+              )}
             </div>
           ))}
         </div>

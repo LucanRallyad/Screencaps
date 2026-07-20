@@ -15,15 +15,31 @@ export async function dismissPopups(page: Page): Promise<number> {
         "aceitar", "aceitar todos", "zgadzam", "akceptuj",
         "confirm", "confirm my choices", "save and exit", "save & exit",
       ];
-      const CLOSE_TEXTS = ["close", "no thanks", "no, thanks", "dismiss", "skip", "later", "×", "✕", "x", "✖"];
+      const CLOSE_TEXTS = ["close", "no thanks", "no, thanks", "dismiss", "skip", "skip ad", "later", "maybe later", "not now", "continue to site", "×", "✕", "✖", "⨯"];
 
       const matchesText = (el: Element, list: string[]) => {
         const t = (el.textContent ?? "").trim().toLowerCase();
         if (!t || t.length > 60) return false;
-        return list.some((needle) => t === needle || t.includes(needle));
+        // Single glyphs (× etc.) must match exactly — never substring-match, or
+        // "x" would match words like "Explore"/"Next".
+        return list.some((needle) => (needle.length <= 2 ? t === needle : t === needle || t.includes(needle)));
       };
 
-      const clickable = "button, [role=button], a, input[type=button], input[type=submit]";
+      // A control is a "close" control if its text, aria-label, title, or class
+      // signals dismissal. Catches icon-only × buttons that have no text.
+      const isCloseControl = (el: Element): boolean => {
+        if (matchesText(el, CLOSE_TEXTS)) return true;
+        const attrs = [
+          el.getAttribute("aria-label"),
+          el.getAttribute("title"),
+          typeof (el as HTMLElement).className === "string" ? (el as HTMLElement).className : "",
+          el.getAttribute("data-testid"),
+          el.id,
+        ].join(" ").toLowerCase();
+        return /\b(close|dismiss|skip)\b/.test(attrs) || /(^|[-_])close([-_]|$)|closebtn|close-button|btn-close|modal-close|popup-close/.test(attrs);
+      };
+
+      const clickable = "button, [role=button], a, input[type=button], input[type=submit], span, div, i";
 
       // 1) Known CMP selectors — click directly
       const KNOWN_SELECTORS = [
@@ -84,13 +100,16 @@ export async function dismissPopups(page: Page): Promise<number> {
         }
       });
 
-      // 3) Close buttons inside dialog/modal/overlay elements
+      // 3) Close buttons inside dialog/modal/overlay/interstitial elements
       const overlayEls = Array.from(document.querySelectorAll<HTMLElement>(
-        "[role=dialog], [role=alertdialog], .modal, .popup, .overlay, [aria-modal=true], [class*='cookie'], [class*='consent'], [class*='gdpr'], [id*='cookie'], [id*='consent']"
+        "[role=dialog], [role=alertdialog], [aria-modal=true], .modal, .popup, .overlay, .lightbox, .interstitial, " +
+        "[class*='modal'], [class*='popup'], [class*='overlay'], [class*='lightbox'], [class*='interstitial'], [class*='dialog'], " +
+        "[id*='modal'], [id*='popup'], [id*='overlay'], [id*='interstitial'], [id*='lightbox'], " +
+        "[class*='cookie'], [class*='consent'], [class*='gdpr'], [id*='cookie'], [id*='consent']"
       ));
       for (const overlay of overlayEls) {
         for (const btn of Array.from(overlay.querySelectorAll<HTMLElement>(clickable))) {
-          if (matchesText(btn, CLOSE_TEXTS) || matchesText(btn, CONSENT_TEXTS)) {
+          if (isCloseControl(btn) || matchesText(btn, CONSENT_TEXTS)) {
             try { btn.click(); dismissed++; } catch {}
           }
         }
@@ -119,19 +138,31 @@ export async function dismissPopups(page: Page): Promise<number> {
         });
       }
 
-      // 5) Nuclear: remove any large fixed/sticky element with high z-index
-      //    that covers >25% of the viewport (classic modal/overlay pattern)
+      // 5) Nuclear: remove large overlaying elements (fixed/sticky/absolute) with
+      //    a high z-index that cover a big chunk of the viewport — the classic
+      //    modal / interstitial-ad pattern. Also catches full-screen ad iframes
+      //    (which we can't reach into to click their close button, but can drop).
       const vw = window.innerWidth, vh = window.innerHeight;
+      const isHeader = (el: HTMLElement) => {
+        const r = el.getBoundingClientRect();
+        // A sticky top bar hugs the top and is short — don't nuke site headers.
+        return r.top <= 2 && r.height < vh * 0.35;
+      };
       document.querySelectorAll<HTMLElement>("*").forEach((el) => {
         try {
           const cs = getComputedStyle(el);
-          if (cs.position !== "fixed" && cs.position !== "sticky") return;
+          const overlaying = cs.position === "fixed" || cs.position === "sticky" || cs.position === "absolute";
+          if (!overlaying) return;
           const z = parseInt(cs.zIndex, 10);
           if (isNaN(z) || z < 100) return;
+          if (isHeader(el)) return;
           const r = el.getBoundingClientRect();
           const area = r.width * r.height;
-          if (area > vw * vh * 0.25) {
-            // Large fixed overlay — remove it
+          const isIframe = el.tagName === "IFRAME";
+          // Iframes: a smaller threshold (interstitial ad units are often centered
+          // and ~40-60% of the screen). Other elements: >25% of the viewport.
+          const threshold = isIframe ? 0.18 : 0.25;
+          if (area > vw * vh * threshold) {
             el.remove();
             dismissed++;
           }

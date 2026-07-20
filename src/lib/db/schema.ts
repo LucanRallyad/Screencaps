@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   pgTable,
   text,
@@ -15,7 +15,6 @@ import {
 
 // ─── Enums ───────────────────────────────────────────────────────────────────
 
-export const userRole = pgEnum("user_role", ["admin", "user"]);
 export const projectStatus = pgEnum("project_status", [
   "draft",
   "queued",
@@ -35,71 +34,40 @@ export const targetStatus = pgEnum("target_status", [
 export const viewport = pgEnum("viewport", ["desktop", "mobile"]);
 
 // ─── Users / Auth ────────────────────────────────────────────────────────────
+//
+// Identity is owned by the Internal Portal. Users arrive via an SSO ticket
+// (see src/lib/auth/sso.ts); there are no local passwords, invites, or email
+// verification. Each row links to a Portal user by `portalUserId` and carries
+// the roles asserted by the Portal on each hand-off.
 
 export const users = pgTable(
   "users",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    // Portal user ID this local profile is linked to (set on first SSO login).
+    portalUserId: text("portal_user_id").unique(),
     email: text("email").notNull(),
     firstName: text("first_name"),
-    passwordHash: text("password_hash"),
-    role: userRole("role").notNull().default("user"),
-    emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
-    locked: boolean("locked").notNull().default(false),
+    // Roles asserted by the Portal, e.g. ["admin","manager"]. Overwritten on
+    // each SSO login — never edited locally.
+    roles: jsonb("roles").$type<string[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   },
   (t) => ({
     emailIdx: uniqueIndex("users_email_unique").on(t.email),
+    // Case-insensitive uniqueness — the SSO upsert matches by lower(email).
+    emailLowerIdx: uniqueIndex("users_email_lower_unique").on(sql`lower(${t.email})`),
   }),
 );
 
-export const invites = pgTable(
-  "invites",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    email: text("email").notNull(),
-    token: text("token").notNull(),
-    invitedByUserId: uuid("invited_by_user_id").references(() => users.id, { onDelete: "set null" }),
-    consumedAt: timestamp("consumed_at", { withTimezone: true }),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => ({
-    tokenIdx: uniqueIndex("invites_token_unique").on(t.token),
-    emailIdx: index("invites_email_idx").on(t.email),
-  }),
-);
-
-export const emailVerifications = pgTable(
-  "email_verifications",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    token: text("token").notNull(),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    consumedAt: timestamp("consumed_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => ({ tokenIdx: uniqueIndex("email_verifications_token_unique").on(t.token) }),
-);
-
-export const passwordResets = pgTable(
-  "password_resets",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    token: text("token").notNull(),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    consumedAt: timestamp("consumed_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => ({ tokenIdx: uniqueIndex("password_resets_token_unique").on(t.token) }),
-);
+// Spent SSO ticket IDs (jti), tracked to enforce single use. A ticket's jti is
+// inserted before the session is created; a duplicate insert means replay.
+export const ssoTicketsUsed = pgTable("sso_tickets_used", {
+  jti: text("jti").primaryKey(),
+  usedAt: timestamp("used_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
 
 // ─── Projects / Ads / Targets ────────────────────────────────────────────────
 
@@ -227,7 +195,6 @@ export const appSettings = pgTable("app_settings", {
 
 export const usersRelations = relations(users, ({ many }) => ({
   projects: many(projects),
-  invitesSent: many(invites),
   activityLogs: many(activityLogs),
 }));
 

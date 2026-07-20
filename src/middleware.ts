@@ -3,10 +3,10 @@ import { getIronSession } from "iron-session";
 import type { SessionData } from "@/lib/auth/session";
 
 const PUBLIC_PATHS = [
-  "/login",
-  "/forgot-password",
+  "/signed-out",
 ];
-const PUBLIC_PREFIXES = ["/invite/", "/verify/", "/reset/", "/_next/", "/api/auth/"];
+// /api/auth/ stays public so the Portal SSO hand-off (POST /api/auth/sso) is reachable.
+const PUBLIC_PREFIXES = ["/_next/", "/api/auth/"];
 
 const sessionPassword = process.env.SESSION_SECRET ?? "dev-only-replace-me-with-a-real-secret-of-32+chars";
 
@@ -39,13 +39,12 @@ export async function middleware(req: NextRequest) {
   });
 
   if (!session.userId) {
-    if (pathname === "/") return NextResponse.redirect(new URL("/login", req.url));
-    const url = new URL("/login", req.url);
-    url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
+    // No local login — send unauthenticated users to the signed-out screen,
+    // which points them back to the Internal Portal to sign in.
+    return NextResponse.redirect(new URL("/signed-out", req.url));
   }
 
-  // Admin gate
+  // Admin gate — `role` is derived from the Portal-asserted roles at SSO time.
   if (pathname.startsWith("/admin") && session.role !== "admin") {
     return NextResponse.redirect(new URL("/projects", req.url));
   }

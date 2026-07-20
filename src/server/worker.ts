@@ -25,9 +25,10 @@ async function main() {
   await boss.createQueue(QUEUE_CAPTURE).catch(() => {});
 
   await boss.work<CaptureJobData>(QUEUE_CAPTURE, { batchSize: concurrency }, async (jobs) => {
-    for (const job of jobs) {
-      await processJob(job.data, job.id);
-    }
+    // Process the batch concurrently so one slow (or timing-out) target doesn't
+    // hold up the others. Each job settles independently; processJob never
+    // throws (it records failures itself), so the batch always resolves.
+    await Promise.all(jobs.map((job) => processJob(job.data, job.id)));
   });
 
   process.on("SIGINT", shutdown);

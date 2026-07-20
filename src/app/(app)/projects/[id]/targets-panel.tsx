@@ -29,7 +29,15 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "Failed",
 };
 
-export function TargetsPanel({ projectId, targets }: { projectId: string; targets: Target[] }) {
+export function TargetsPanel({
+  projectId,
+  targets,
+  readOnly = false,
+}: {
+  projectId: string;
+  targets: Target[];
+  readOnly?: boolean;
+}) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [pending, start] = useTransition();
@@ -83,65 +91,69 @@ export function TargetsPanel({ projectId, targets }: { projectId: string; target
         </p>
       </div>
 
-      <div
-        {...getRootProps()}
-        className={`border border-dashed rounded-lg px-4 py-5 text-center cursor-pointer transition-colors ${
-          pending
-            ? "border-border opacity-60 pointer-events-none"
-            : isDragActive
-            ? "border-foreground/40 bg-accent/30"
-            : "border-border hover:border-foreground/20"
-        }`}
-      >
-        <input {...getInputProps()} disabled={pending} />
-        <div className="flex flex-col items-center gap-1.5">
-          {pending ? (
-            <Loader2 className="size-5 text-muted-foreground animate-spin" />
-          ) : targets.length > 0 ? (
-            <CheckCircle2 className="size-5 text-success" />
-          ) : (
-            <FileSpreadsheet className="size-5 text-muted-foreground" />
-          )}
-          <p className="text-sm">
-            {pending
-              ? "Parsing file…"
-              : isDragActive
-              ? "Drop to upload"
-              : "Drop a CSV or Excel file — uploads automatically"}
-          </p>
-        </div>
-      </div>
+      {!readOnly && (
+        <>
+          <div
+            {...getRootProps()}
+            className={`border border-dashed rounded-lg px-4 py-5 text-center cursor-pointer transition-colors ${
+              pending
+                ? "border-border opacity-60 pointer-events-none"
+                : isDragActive
+                ? "border-foreground/40 bg-accent/30"
+                : "border-border hover:border-foreground/20"
+            }`}
+          >
+            <input {...getInputProps()} disabled={pending} />
+            <div className="flex flex-col items-center gap-1.5">
+              {pending ? (
+                <Loader2 className="size-5 text-muted-foreground animate-spin" />
+              ) : targets.length > 0 ? (
+                <CheckCircle2 className="size-5 text-success" />
+              ) : (
+                <FileSpreadsheet className="size-5 text-muted-foreground" />
+              )}
+              <p className="text-sm">
+                {pending
+                  ? "Parsing file…"
+                  : isDragActive
+                  ? "Drop to upload"
+                  : "Drop a CSV or Excel file — uploads automatically"}
+              </p>
+            </div>
+          </div>
 
-      <div className="mt-3 flex flex-col gap-2">
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Or paste URLs here, one per line"
-          rows={4}
-          disabled={pending}
-          className="w-full rounded-lg border border-input bg-background/60 px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y disabled:opacity-50"
-        />
-        <div className="flex items-center justify-between">
-          <Button onClick={submitText} disabled={pending || !text.trim()} size="sm">
-            {pending ? <Loader2 className="animate-spin" /> : <Plus />}
-            Add URLs
-          </Button>
-          {targets.length > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
+          <div className="mt-3 flex flex-col gap-2">
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Or paste URLs here, one per line"
+              rows={4}
               disabled={pending}
-              onClick={async () => {
-                if (!confirm(`Remove all ${targets.length} URLs?`)) return;
-                await clearTargetsAction(projectId);
-                router.refresh();
-              }}
-            >
-              <Trash2 /> Clear all
-            </Button>
-          )}
-        </div>
-      </div>
+              className="w-full rounded-lg border border-input bg-background/60 px-3 py-2 text-sm font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y disabled:opacity-50"
+            />
+            <div className="flex items-center justify-between">
+              <Button onClick={submitText} disabled={pending || !text.trim()} size="sm">
+                {pending ? <Loader2 className="animate-spin" /> : <Plus />}
+                Add URLs
+              </Button>
+              {targets.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={pending}
+                  onClick={async () => {
+                    if (!confirm(`Remove all ${targets.length} URLs?`)) return;
+                    await clearTargetsAction(projectId);
+                    router.refresh();
+                  }}
+                >
+                  <Trash2 /> Clear all
+                </Button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {targets.length > 0 && (
         <div className="mt-4 border-t border-border -mx-5 px-5 pt-3 max-h-[300px] overflow-y-auto scroll-hide">

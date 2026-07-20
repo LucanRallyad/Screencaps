@@ -18,7 +18,7 @@ import { CreateProjectButton } from "./create-project-button";
 import { Camera, ImageOff, Search, X, Trash2, RotateCcw, AlertTriangle } from "lucide-react";
 import { softDeleteProjectAction, restoreProjectAction, permanentlyDeleteProjectAction } from "@/lib/actions/projects";
 import { toast } from "sonner";
-import { relativeTime } from "@/lib/utils";
+import { relativeTime, cn } from "@/lib/utils";
 
 type Project = {
   id: string;
@@ -28,6 +28,8 @@ type Project = {
   createdAt: Date | null;
   total: number;
   done: number;
+  isOwner: boolean;
+  ownerEmail: string;
 };
 
 type DeletedProject = {
@@ -138,9 +140,18 @@ function TrashDialog({ deleted }: { deleted: DeletedProject[] }) {
 export function ProjectsGrid({
   projects,
   deleted = [],
+  canViewAll = false,
+  canManageAny = false,
+  scope = "mine",
 }: {
   projects: Project[];
   deleted?: DeletedProject[];
+  /** Whether this viewer (admin/manager) may see everyone's projects. */
+  canViewAll?: boolean;
+  /** Whether this viewer (admin/manager) may edit/delete any project. */
+  canManageAny?: boolean;
+  /** Which tab is active when canViewAll: "all" or "mine". */
+  scope?: "all" | "mine";
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
@@ -202,6 +213,33 @@ export function ProjectsGrid({
         </div>
       </div>
 
+      {canViewAll && (
+        <div className="flex items-center gap-1 -mt-3">
+          <Link
+            href="/projects"
+            className={cn(
+              "px-3 py-1.5 rounded-md text-sm transition-colors",
+              scope === "all"
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+            )}
+          >
+            All projects
+          </Link>
+          <Link
+            href="/projects?scope=mine"
+            className={cn(
+              "px-3 py-1.5 rounded-md text-sm transition-colors",
+              scope === "mine"
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+            )}
+          >
+            My projects
+          </Link>
+        </div>
+      )}
+
       {projects.length === 0 ? (
         <Card className="p-12 flex flex-col items-center justify-center text-center">
           <div className="size-12 rounded-full border border-border bg-secondary/40 flex items-center justify-center mb-4">
@@ -237,22 +275,30 @@ export function ProjectsGrid({
                     {p.done}/{p.total} captured
                   </Link>
                   <div className="flex items-center gap-2">
+                    {!p.isOwner && (
+                      <span className="truncate max-w-[120px]" title={`Owner: ${p.ownerEmail}`}>
+                        {p.ownerEmail}
+                      </span>
+                    )}
                     <span>{p.createdAt ? relativeTime(p.createdAt) : ""}</span>
-                    <button
-                      disabled={pending}
-                      onClick={() => {
-                        if (!confirm(`Move "${p.brand} — ${p.campaign}" to trash?`)) return;
-                        start(async () => {
-                          const res = await softDeleteProjectAction(p.id);
-                          if ("error" in res) toast.error((res as { error: string }).error);
-                          else { toast.success("Moved to trash"); router.refresh(); }
-                        });
-                      }}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity size-6 rounded flex items-center justify-center hover:text-destructive hover:bg-destructive/10 disabled:pointer-events-none"
-                      aria-label="Delete project"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
+                    {/* Owner, or an admin/manager, can trash a project. */}
+                    {(p.isOwner || canManageAny) && (
+                      <button
+                        disabled={pending}
+                        onClick={() => {
+                          if (!confirm(`Move "${p.brand} — ${p.campaign}" to trash?`)) return;
+                          start(async () => {
+                            const res = await softDeleteProjectAction(p.id);
+                            if ("error" in res) toast.error((res as { error: string }).error);
+                            else { toast.success("Moved to trash"); router.refresh(); }
+                          });
+                        }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity size-6 rounded flex items-center justify-center hover:text-destructive hover:bg-destructive/10 disabled:pointer-events-none"
+                        aria-label="Delete project"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </Card>
