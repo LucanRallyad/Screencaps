@@ -1,19 +1,43 @@
-import { Resend } from "resend";
+// Transactional email via Brevo (https://developers.brevo.com). Auth emails
+// (invite / verification / password reset) were removed with the move to Portal
+// SSO; only the project-complete notification remains.
 
-const resendKey = process.env.RESEND_API_KEY;
-const from = process.env.EMAIL_FROM ?? "Screencaps <noreply@example.com>";
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
+const from = process.env.BREVO_FROM ?? "Screencaps <noreply@rallyadmedia.com>";
 const baseUrl = process.env.BASE_URL ?? "http://localhost:3000";
+const BREVO_ENDPOINT = "https://api.brevo.com/v3/smtp/email";
 
-const resend = resendKey ? new Resend(resendKey) : null;
+/** Parse a "Name <email>" sender string into Brevo's sender object. */
+function parseSender(value: string): { name: string; email: string } {
+  const match = value.match(/^\s*(.*?)\s*<\s*([^>]+)\s*>\s*$/);
+  if (match) return { name: match[1] || "Screencaps", email: match[2] };
+  return { name: "Screencaps", email: value.trim() };
+}
 
 async function send(to: string, subject: string, html: string) {
-  if (!resend) {
+  if (!BREVO_API_KEY) {
     // Dev fallback — log the link to the console so the flow works without SMTP.
     console.log(`\n[email:dev] to=${to} subject="${subject}"\n${html}\n`);
     return;
   }
-  const { error } = await resend.emails.send({ from, to, subject, html });
-  if (error) throw new Error(`Resend error: ${error.message}`);
+  const res = await fetch(BREVO_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "api-key": BREVO_API_KEY,
+      "content-type": "application/json",
+      accept: "application/json",
+    },
+    body: JSON.stringify({
+      sender: parseSender(from),
+      to: [{ email: to }],
+      subject,
+      htmlContent: html,
+    }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Brevo error: ${res.status} ${detail}`);
+  }
 }
 
 const wrap = (title: string, body: string, ctaUrl: string, ctaLabel: string) => `
@@ -35,48 +59,6 @@ const wrap = (title: string, body: string, ctaUrl: string, ctaLabel: string) => 
     </td></tr>
   </table>
 </body></html>`;
-
-export async function sendInviteEmail(email: string, token: string) {
-  const url = `${baseUrl}/invite/${token}`;
-  await send(
-    email,
-    "You're invited to Screencaps",
-    wrap(
-      "You've been invited",
-      "Set up your account to start creating ad-screenshot projects. This invite expires in 72 hours.",
-      url,
-      "Set up your account",
-    ),
-  );
-}
-
-export async function sendVerificationEmail(email: string, token: string) {
-  const url = `${baseUrl}/verify/${token}`;
-  await send(
-    email,
-    "Verify your Screencaps email",
-    wrap(
-      "Verify your email",
-      "Click below to confirm your account. The link expires in 24 hours.",
-      url,
-      "Verify email",
-    ),
-  );
-}
-
-export async function sendPasswordResetEmail(email: string, token: string) {
-  const url = `${baseUrl}/reset/${token}`;
-  await send(
-    email,
-    "Reset your Screencaps password",
-    wrap(
-      "Reset your password",
-      "If you didn't request this, ignore this email. Link expires in 4 hours.",
-      url,
-      "Choose a new password",
-    ),
-  );
-}
 
 export type ProjectCompleteStats = {
   brand: string;

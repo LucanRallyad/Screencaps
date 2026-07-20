@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db/client";
 import { projects, ads, targets, screenshots } from "@/lib/db/schema";
 import { eq, and, asc, inArray } from "drizzle-orm";
-import { requireUser } from "@/lib/auth/session";
+import { requireUser, canAccessAllProjects } from "@/lib/auth/session";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -31,13 +31,20 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const { id } = await params;
   const me = await requireUser();
 
+  // Owners always; admins/managers have full access to any project.
   const [project] = await db
     .select()
     .from(projects)
-    .where(and(eq(projects.id, id), eq(projects.ownerUserId, me.userId)))
+    .where(eq(projects.id, id))
     .limit(1);
 
   if (!project) notFound();
+  const isOwner = project.ownerUserId === me.userId;
+  const canManage = isOwner || canAccessAllProjects(me);
+  if (!canManage) notFound();
+  // Only a plain (non-privileged) non-owner would be read-only — which can't
+  // happen today since only admins/managers besides the owner reach this page.
+  const readOnly = !canManage;
 
   const adRows = await db.select().from(ads).where(eq(ads.projectId, id)).orderBy(asc(ads.createdAt));
   const targetRows = await db.select().from(targets).where(eq(targets.projectId, id)).orderBy(asc(targets.createdAt));
@@ -85,12 +92,18 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {readOnly && (
+            <Badge variant="muted" title="You can view this project but not edit it">
+              Read-only
+            </Badge>
+          )}
           <Button asChild variant="secondary">
             <a href={`/api/projects/${project.id}/download`}>
               <Download /> Download ZIP
             </a>
           </Button>
-          <RunControls projectId={project.id} isRunning={isRunning} />
+          {/* Running a capture mutates the project — owner only. */}
+          {!readOnly && <RunControls projectId={project.id} isRunning={isRunning} />}
         </div>
       </div>
 
@@ -109,8 +122,8 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
 
         <TabsContent value="setup">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <AdsPanel projectId={project.id} ads={adRows} />
-            <TargetsPanel projectId={project.id} targets={targetRows} />
+            <AdsPanel projectId={project.id} ads={adRows} readOnly={readOnly} />
+            <TargetsPanel projectId={project.id} targets={targetRows} readOnly={readOnly} />
           </div>
         </TabsContent>
 

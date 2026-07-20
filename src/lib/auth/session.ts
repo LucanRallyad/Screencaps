@@ -1,11 +1,14 @@
 import "server-only";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { getIronSession, type SessionOptions } from "iron-session";
 import { redirect } from "next/navigation";
 
 export type SessionData = {
   userId?: string;
   email?: string;
+  // Roles asserted by the Portal at SSO time. `role` is a derived convenience
+  // ("admin" when roles includes "admin") kept so existing checks keep working.
+  roles?: string[];
   role?: "admin" | "user";
 };
 
@@ -40,25 +43,35 @@ export async function getSession() {
   return getIronSession<SessionData>(cookieStore, sessionOptions);
 }
 
-async function currentPath() {
-  const h = await headers();
-  return h.get("x-invoke-path") ?? h.get("x-pathname") ?? "/";
-}
-
 export async function requireUser() {
   const session = await getSession();
   if (!session.userId) {
-    const path = await currentPath();
-    redirect(`/login?next=${encodeURIComponent(path)}`);
+    // No local login — the signed-out screen points back to the Portal.
+    redirect("/signed-out");
   }
-  return { userId: session.userId, email: session.email!, role: session.role! };
+  return {
+    userId: session.userId,
+    email: session.email!,
+    role: session.role!,
+    roles: session.roles ?? [],
+  };
+}
+
+/**
+ * Admins and managers have full access to EVERY user's projects — view, edit,
+ * run, and delete — not just their own. (Only the Users page and Activity log
+ * remain admin-only, gated separately by requireAdmin.) Regular users are
+ * limited to their own projects. Accepts anything carrying the session's roles.
+ */
+export function canAccessAllProjects(s: { roles?: string[]; role?: string | null }): boolean {
+  const roles = s.roles ?? [];
+  return roles.includes("admin") || roles.includes("manager") || s.role === "admin";
 }
 
 export async function requireAdmin() {
   const session = await getSession();
   if (!session.userId) {
-    const path = await currentPath();
-    redirect(`/login?next=${encodeURIComponent(path)}`);
+    redirect("/signed-out");
   }
   if (session.role !== "admin") redirect("/projects");
   return { userId: session.userId!, email: session.email!, role: session.role as "admin" };

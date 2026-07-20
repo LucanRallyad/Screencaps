@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { projects, targets, ads, screenshots } from "@/lib/db/schema";
-import { requireUser } from "@/lib/auth/session";
+import { requireUser, canAccessAllProjects } from "@/lib/auth/session";
 import { logActivity } from "@/lib/activity";
 import { saveAdFile } from "@/lib/storage/files";
 import { parseUrlsFromFile } from "@/lib/parse/urls";
@@ -50,19 +50,26 @@ export async function createProject(formData: FormData) {
   }
 }
 
-async function ownedProject(projectId: string, userId: string) {
-  const [p] = await db
-    .select()
-    .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.ownerUserId, userId)))
-    .limit(1);
+/**
+ * Fetch a project the caller is allowed to manage: the owner, or an
+ * admin/manager (who may manage any project). Throws PROJECT_NOT_FOUND
+ * otherwise — mutating actions all funnel through here.
+ */
+async function authorizedProject(
+  projectId: string,
+  me: { userId: string; roles?: string[]; role?: string | null },
+) {
+  const [p] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
   if (!p) throw new Error("PROJECT_NOT_FOUND");
+  if (p.ownerUserId !== me.userId && !canAccessAllProjects(me)) {
+    throw new Error("PROJECT_NOT_FOUND");
+  }
   return p;
 }
 
 export async function uploadAdsAction(projectId: string, formData: FormData) {
   const me = await requireUser();
-  await ownedProject(projectId, me.userId);
+  await authorizedProject(projectId, me);
 
   const files = formData.getAll("files").filter((f): f is File => f instanceof File);
   if (files.length === 0) return { error: "No files received." };
@@ -94,7 +101,7 @@ export async function uploadAdsAction(projectId: string, formData: FormData) {
 
 export async function deleteAdAction(projectId: string, adId: string) {
   const me = await requireUser();
-  await ownedProject(projectId, me.userId);
+  await authorizedProject(projectId, me);
 
   const [ad] = await db.select().from(ads).where(eq(ads.id, adId)).limit(1);
   if (ad && ad.projectId === projectId) {
@@ -107,7 +114,7 @@ export async function deleteAdAction(projectId: string, adId: string) {
 
 export async function uploadTargetsAction(projectId: string, formData: FormData) {
   const me = await requireUser();
-  await ownedProject(projectId, me.userId);
+  await authorizedProject(projectId, me);
 
   const text = (formData.get("text") as string | null) ?? "";
   const file = formData.get("file");
@@ -154,7 +161,7 @@ export async function uploadTargetsAction(projectId: string, formData: FormData)
 
 export async function clearTargetsAction(projectId: string) {
   const me = await requireUser();
-  await ownedProject(projectId, me.userId);
+  await authorizedProject(projectId, me);
   await db.delete(targets).where(eq(targets.projectId, projectId));
   revalidatePath(`/projects/${projectId}`);
   return { ok: true as const };
@@ -162,7 +169,7 @@ export async function clearTargetsAction(projectId: string) {
 
 export async function processProjectAction(projectId: string) {
   const me = await requireUser();
-  const p = await ownedProject(projectId, me.userId);
+  const p = await authorizedProject(projectId, me);
 
   const [{ adCount }] = await db
     .select({ adCount: sql<number>`count(*)::int` })
@@ -211,7 +218,7 @@ export async function processProjectAction(projectId: string) {
 
 export async function stopProjectAction(projectId: string) {
   const me = await requireUser();
-  await ownedProject(projectId, me.userId);
+  await authorizedProject(projectId, me);
   await stopProjectRun(projectId);
   await db.update(projects).set({ status: "stopped", updatedAt: new Date() }).where(eq(projects.id, projectId));
   await logActivity({
@@ -227,7 +234,7 @@ export async function stopProjectAction(projectId: string) {
 
 export async function retryTargetAction(projectId: string, targetId: string) {
   const me = await requireUser();
-  await ownedProject(projectId, me.userId);
+  await authorizedProject(projectId, me);
   await retryTarget(projectId, targetId);
   revalidatePath(`/projects/${projectId}`);
   return { ok: true as const };
@@ -235,7 +242,7 @@ export async function retryTargetAction(projectId: string, targetId: string) {
 
 export async function softDeleteProjectAction(projectId: string) {
   const me = await requireUser();
-  const p = await ownedProject(projectId, me.userId);
+  const p = await authorizedProject(projectId, me);
   await db
     .update(projects)
     .set({ deletedAt: new Date(), updatedAt: new Date() })
@@ -253,12 +260,12 @@ export async function softDeleteProjectAction(projectId: string) {
 
 export async function restoreProjectAction(projectId: string) {
   const me = await requireUser();
-  const [p] = await db
-    .select()
-    .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.ownerUserId, me.userId)))
-    .limit(1);
-  if (!p) return { error: "Project not found." };
+  let p;
+  try {
+    p = await authorizedProject(projectId, me);
+  } catch {
+    return { error: "Project not found." };
+  }
   await db
     .update(projects)
     .set({ deletedAt: null, updatedAt: new Date() })
@@ -286,12 +293,12 @@ async function hardDeleteProject(projectId: string) {
 
 export async function permanentlyDeleteProjectAction(projectId: string) {
   const me = await requireUser();
-  const [p] = await db
-    .select()
-    .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.ownerUserId, me.userId)))
-    .limit(1);
-  if (!p) return { error: "Project not found." };
+  let p;
+  try {
+    p = await authorizedProject(projectId, me);
+  } catch {
+    return { error: "Project not found." };
+  }
   await hardDeleteProject(p.id);
   await logActivity({
     userId: me.userId,

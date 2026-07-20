@@ -48,6 +48,21 @@ export async function detectAdSlots(page: Page, adDomainSet?: Set<string>): Prom
         try { return new URL(src).hostname.replace(/^www\./, ""); } catch { return ""; }
       }
 
+      // Embeds that commonly match a standard ad size by coincidence but are NOT
+      // ads — never treat these as slots (prevents dropping a creative on a real
+      // video/map/social embed and reporting a bogus "replacement").
+      const NON_AD_HOSTS = [
+        "youtube.com", "youtube-nocookie.com", "youtu.be", "vimeo.com", "player.vimeo.com",
+        "dailymotion.com", "brightcove.net", "jwplayer.com", "wistia.com", "wistia.net",
+        "twitch.tv", "google.com", "maps.google.com", "recaptcha.net", "gstatic.com",
+        "twitter.com", "x.com", "platform.twitter.com", "facebook.com", "instagram.com",
+        "tiktok.com", "soundcloud.com", "spotify.com", "disqus.com", "reddit.com", "giphy.com",
+      ];
+      function isNonAdEmbed(src: string | null): boolean {
+        const d = srcDomain(src);
+        return !!d && NON_AD_HOSTS.some((h) => d === h || d.endsWith("." + h));
+      }
+
       function describeNetwork(el: Element): string | null {
         const src = el.getAttribute("src") ?? "";
         // Check blocklist domain match first
@@ -71,6 +86,7 @@ export async function detectAdSlots(page: Page, adDomainSet?: Set<string>): Prom
         if (w < 50 || h < 30) return;
         const cs = getComputedStyle(iframe);
         if (cs.display === "none" || cs.visibility === "hidden") return;
+        if (isNonAdEmbed(iframe.getAttribute("src"))) return; // real video/map/social embed
         const network = describeNetwork(iframe);
         // Match by: known network, blocklist domain, OR standard IAB size
         const matchSize = sizes.some(([sw, sh]) => Math.abs(sw - w) <= tolerance && Math.abs(sh - h) <= tolerance);
@@ -149,8 +165,10 @@ export async function replaceSlots(
           badge.src = r.badgeDataUrl;
           badge.alt = "AdChoices";
           if (r.badgeType === "icon") {
-            // Icon-only: small, top-right
-            badge.style.cssText = `position:absolute;top:3px;right:3px;width:16px;height:16px;object-fit:contain;z-index:10;`;
+            // AdChoices ▷⋮ chip (white box, subtle border), top-right corner.
+            // Box width tracks the icon artwork aspect (795x400) so the extra
+            // white to the right of the dots renders without letterboxing.
+            badge.style.cssText = `position:absolute;top:3px;right:3px;width:32px;height:16px;background:#fff;border:1px solid #dadce0;border-radius:2px;object-fit:contain;z-index:10;`;
           } else {
             // Text logo: top-left
             badge.style.cssText = `position:absolute;top:3px;left:3px;width:52px;height:14px;object-fit:contain;object-position:left center;z-index:10;`;

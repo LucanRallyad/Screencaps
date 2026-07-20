@@ -14,14 +14,17 @@ let _badgeText: string | null | undefined;
 async function loadBadge(filename: string): Promise<string | null> {
   try {
     const buf = await fs.readFile(path.join(process.cwd(), "public", filename));
-    return `data:image/jpeg;base64,${buf.toString("base64")}`;
+    const mime = filename.endsWith(".png") ? "image/png" : "image/jpeg";
+    return `data:${mime};base64,${buf.toString("base64")}`;
   } catch {
     return null;
   }
 }
 
 async function getBadges(): Promise<{ icon: string | null; text: string | null }> {
-  if (_badgeIcon === undefined) _badgeIcon = await loadBadge("adchoices.jpg");
+  // The AdChoices "▷ ⋮" marker (public/adchoices-icon.png) — the exact artwork
+  // supplied for the corner overlay.
+  if (_badgeIcon === undefined) _badgeIcon = await loadBadge("adchoices-icon.png");
   if (_badgeText === undefined) _badgeText = await loadBadge("ad-choices.jpg");
   return { icon: _badgeIcon ?? null, text: _badgeText ?? null };
 }
@@ -70,6 +73,11 @@ export type CaptureInput = {
 
 const SCREENSHOT_DIR = process.env.SCREENSHOT_DIR ?? "./screenshots";
 const NAV_TIMEOUT = 45_000;
+// Overall wall-clock cap for a single target capture. A safety net so one
+// pathological site (endless resources, consent walls, deep internal links)
+// can never hang forever and block the queue — it's marked failed and the
+// worker moves on. Tunable via env.
+const CAPTURE_TIMEOUT_MS = Number(process.env.CAPTURE_TIMEOUT_MS ?? 150_000);
 const MAX_SHOTS_PER_PAGE = 8;
 
 let cachedBrowser: Browser | null = null;
@@ -112,6 +120,11 @@ async function safeEval<T>(page: Page, fn: () => T, fallback: T): Promise<T> {
 export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome> {
   const profile: DeviceProfile = input.device === "mobile" ? MOBILE : DESKTOP;
   let context: Awaited<ReturnType<Browser["newContext"]>> | null = null;
+  // Watchdog: if the whole capture exceeds CAPTURE_TIMEOUT_MS, force the context
+  // closed. That makes any in-flight page operation reject, so the capture
+  // unwinds and returns a "timed out" failure instead of hanging the queue.
+  let timedOut = false;
+  let watchdog: ReturnType<typeof setTimeout> | null = null;
   try {
     const browser = await getBrowser();
 
@@ -123,6 +136,11 @@ export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome
       userAgent: profile.userAgent,
       locale: "en-US",
     });
+
+    watchdog = setTimeout(() => {
+      timedOut = true;
+      context?.close().catch(() => {});
+    }, CAPTURE_TIMEOUT_MS);
 
     // Shim esbuild's __name helper so page.evaluate callbacks don't throw
     await context.addInitScript(() => {
@@ -236,6 +254,9 @@ export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome
       return { status: "no_ad_slots", adSlotsFound: 0, popupsDismissed, screenshots: [] };
     }
 
+    // Final dismissal pass right before capture — interstitial ads often appear
+    // during the multi-second ad-auction settle/detection window above.
+    await dismissPopups(page);
     await injectBrowserBar(page, currentUrl, input.device === "mobile");
     const screenshots = await captureViewports(page, input, profile, slots, input.ads, 0);
 
@@ -279,11 +300,19 @@ export async function captureTarget(input: CaptureInput): Promise<CaptureOutcome
       uniqueAdSizes,
     };
     } catch (err) {
+      if (timedOut) {
+        return { status: "failed", error: `Capture timed out after ${Math.round(CAPTURE_TIMEOUT_MS / 1000)}s` };
+      }
       return { status: "failed", error: (err as Error).message.slice(0, 240) };
     } finally {
+      if (watchdog) clearTimeout(watchdog);
       await context.close().catch(() => {});
     }
   } catch (err) {
+    if (watchdog) clearTimeout(watchdog);
+    if (timedOut) {
+      return { status: "failed", error: `Capture timed out after ${Math.round(CAPTURE_TIMEOUT_MS / 1000)}s` };
+    }
     const msg = (err as Error).message.slice(0, 240);
     console.error(`[engine] browser/context error: ${msg}`);
     return { status: "failed", error: msg };
